@@ -2,181 +2,282 @@
 <html lang="zh">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>EatingNotes</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BiteNotes</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <h1>🍲 EatingNotes</h1>
+  <header class="topbar">
+    <div class="brand-name">BiteNotes</div>
+    <div class="date-nav">
+      <button class="nav-btn" id="prevDayBtn" type="button" aria-label="前一天">‹</button>
+      <button class="today-btn" id="todayBtn" type="button">今日 ▾</button>
+      <button class="nav-btn" id="nextDayBtn" type="button" aria-label="后一天">›</button>
+    </div>
+    <input class="date-input" type="date" id="datePicker" />
+  </header>
 
-  <div class="inline-group">
-    <label for="datePicker">📅 选择日期</label>
-    <input type="date" id="datePicker" />
-  </div>
+  <main>
+    <section class="card target-card">
+      <div class="section-title">
+        <div>
+          <h1>营养目标</h1>
+          <button class="day-badge" id="dayTypeBadge" type="button">选择你的目标</button>
+        </div>
+      </div>
 
-  <label for="goal">🎯 今日目标热量 (cal)</label>
-  <input type="number" id="goal" placeholder="例如 2000" />
+      <div class="target-rings">
+        <div class="ring-stat" id="calorieRing">
+          <div class="ring">
+            <strong id="eatenCalories">0</strong>
+            <span>/<b id="targetCalories">1800</b></span>
+          </div>
+          <p>热量 (kcal)</p>
+        </div>
+        <div class="ring-stat" id="carbsRing">
+          <div class="ring">
+            <strong id="eatenCarbs">0</strong>
+            <span>/<b id="targetCarbs">180</b>g</span>
+          </div>
+          <p>碳水 (g)</p>
+        </div>
+        <div class="ring-stat" id="proteinRing">
+          <div class="ring">
+            <strong id="eatenProtein">0</strong>
+            <span>/<b id="targetProtein">135</b>g</span>
+          </div>
+          <p>蛋白质 (g)</p>
+        </div>
+        <div class="ring-stat" id="fatRing">
+          <div class="ring">
+            <strong id="eatenFat">0</strong>
+            <span>/<b id="targetFat">60</b>g</span>
+          </div>
+          <p>脂肪 (g)</p>
+        </div>
+      </div>
+    </section>
 
-  <label for="weight">⚖️ 今日体重 (kg)</label>
-  <input type="number" id="weight" placeholder="例如 57.5" step="0.1" />
+    <section class="meal-list" id="mealList"></section>
+  </main>
 
-  <label for="food">🍽️ 食物</label>
-  <input type="text" id="food" list="foodList" placeholder="例如 水煮蛋" />
-  <datalist id="foodList"></datalist>
+  <script>
+  const dayTemplates = {
+    normal: { label: '普通日', calories: 1800, ratio: { protein: 30, carbs: 40, fat: 30 } },
+    training: { label: '训练日', calories: 2000, ratio: { protein: 30, carbs: 45, fat: 25 } },
+    highCarb: { label: '高碳日', calories: 2100, ratio: { protein: 25, carbs: 55, fat: 20 } },
+    lowCarb: { label: '低碳日', calories: 1600, ratio: { protein: 35, carbs: 25, fat: 40 } },
+    rest: { label: '休息日', calories: 1700, ratio: { protein: 35, carbs: 30, fat: 35 } },
+  };
+  const defaultMealRatio = { meal1: 30, meal2: 35, meal3: 25, snack: 10 };
+  const meals = [
+    { id: 'meal1', title: '第 1 餐' },
+    { id: 'meal2', title: '第 2 餐' },
+    { id: 'meal3', title: '第 3 餐' },
+    { id: 'snack', title: '加餐' },
+  ];
 
-  <label for="quantity">🔢 数量</label>
-  <input type="number" id="quantity" placeholder="例如 2" />
-
-  <label for="calories">⚡️ 热量 (per 份，cal)</label>
-  <input type="number" id="calories" placeholder="例如 78" />
-
-  <label for="category">📂 分类</label>
-  <select id="category">
-    <option value="早餐">🍳 早餐</option>
-    <option value="午餐">🥗 午餐</option>
-    <option value="晚餐">🍛 晚餐</option>
-    <option value="零食">🥤 零食</option>
-  </select>
-
-  <button id="addBtn">➕ 添加食物</button>
-
-  <p><strong>已吃：</strong> <span id="totalCalories">0</span> / <span id="goalCalories">0</span> cal</p>
-  <p><strong>剩余：</strong> <span id="remainingCalories">0</span> cal</p>
-
-  <div class="record-category">
-    <h3>🍳 早餐</h3>
-    <ul id="breakfastList"></ul>
-  </div>
-  <div class="record-category">
-    <h3>🥗 午餐</h3>
-    <ul id="lunchList"></ul>
-  </div>
-  <div class="record-category">
-    <h3>🍛 晚餐</h3>
-    <ul id="dinnerList"></ul>
-  </div>
-  <div class="record-category">
-    <h3>🥤 零食</h3>
-    <ul id="snackList"></ul>
-  </div>
-
-  <script type="module">
-  import { fetchRecords, saveRecords, fetchMeta, saveMeta } from './storageService.js';
-  import { getAllFoods } from './foodLibraryService.js';
-  import { addPendingFood } from './pendingFoodService.js';
-
-  // —— DOM 引用 —— 
-  const dateInput   = document.getElementById('datePicker');
-  const goalInput   = document.getElementById('goal');
-  const goalDisplay = document.getElementById('goalCalories');
-  const weightInput = document.getElementById('weight');
-  const foodInput   = document.getElementById('food');
-  const qtyInput    = document.getElementById('quantity');
-  const calInput    = document.getElementById('calories');
-  const catSelect   = document.getElementById('category');
-  const addBtn      = document.getElementById('addBtn');
-  const totalEl     = document.getElementById('totalCalories');
-  const remainEl    = document.getElementById('remainingCalories');
-  const lists       = {
-    '早餐': document.getElementById('breakfastList'),
-    '午餐': document.getElementById('lunchList'),
-    '晚餐': document.getElementById('dinnerList'),
-    '零食': document.getElementById('snackList'),
+  const dateInput = document.getElementById('datePicker');
+  const todayBtn = document.getElementById('todayBtn');
+  const prevDayBtn = document.getElementById('prevDayBtn');
+  const nextDayBtn = document.getElementById('nextDayBtn');
+  const dayTypeBadge = document.getElementById('dayTypeBadge');
+  const mealList = document.getElementById('mealList');
+  const summaryEls = {
+    calories: { eaten: document.getElementById('eatenCalories'), target: document.getElementById('targetCalories'), ring: document.getElementById('calorieRing') },
+    carbs: { eaten: document.getElementById('eatenCarbs'), target: document.getElementById('targetCarbs'), ring: document.getElementById('carbsRing') },
+    protein: { eaten: document.getElementById('eatenProtein'), target: document.getElementById('targetProtein'), ring: document.getElementById('proteinRing') },
+    fat: { eaten: document.getElementById('eatenFat'), target: document.getElementById('targetFat'), ring: document.getElementById('fatRing') },
   };
 
-  // —— datalist 填充 —— 
-  async function reloadFoodList() {
-    const list = await getAllFoods(); // 只显示已审核主库
-    const dl   = document.getElementById('foodList');
-    dl.innerHTML = '';
-    list.forEach(item => {
-      const opt = document.createElement('option');
-      opt.value = item.name;
-      dl.appendChild(opt);
+  let currentMeta = {};
+  let currentRecords = [];
+
+  function readJson(key, fallback) {
+    const data = localStorage.getItem(key);
+    try {
+      return data ? JSON.parse(data) : fallback;
+    } catch (error) {
+      console.error(`读取 ${key} 失败：`, error);
+      return fallback;
+    }
+  }
+
+  function todayString() {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  function shiftDate(date, days) {
+    const next = new Date(`${date}T00:00:00`);
+    next.setDate(next.getDate() + days);
+    return next.toISOString().slice(0, 10);
+  }
+
+  function formatDateLabel(date) {
+    if (date === todayString()) return '今日 ▾';
+    const [, month, day] = date.split('-');
+    return `${Number(month)}月${Number(day)}日 ▾`;
+  }
+
+  function toNumber(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : 0;
+  }
+
+  function rounded(value) {
+    return Math.round(toNumber(value));
+  }
+
+  function gramsFromRatio(calories, ratio) {
+    return {
+      protein: rounded((calories * toNumber(ratio.protein) / 100) / 4),
+      carbs: rounded((calories * toNumber(ratio.carbs) / 100) / 4),
+      fat: rounded((calories * toNumber(ratio.fat) / 100) / 9),
+    };
+  }
+
+  function caloriesFromGrams(grams) {
+    return rounded(toNumber(grams.protein) * 4 + toNumber(grams.carbs) * 4 + toNumber(grams.fat) * 9);
+  }
+
+  function defaultMeta(dayType = 'normal') {
+    const template = dayTemplates[dayType] || dayTemplates.normal;
+    return {
+      dayType,
+      targetMode: 'ratio',
+      targetCalories: template.calories,
+      macroRatio: { ...template.ratio },
+      macroGrams: gramsFromRatio(template.calories, template.ratio),
+      mealRatio: { ...defaultMealRatio },
+      targetConfigured: false,
+    };
+  }
+
+  function recalculateTargets(meta) {
+    if (meta.targetMode === 'grams') {
+      meta.targetCalories = caloriesFromGrams(meta.macroGrams);
+    } else {
+      meta.macroGrams = gramsFromRatio(toNumber(meta.targetCalories), meta.macroRatio);
+    }
+    return meta;
+  }
+
+  function normalizeMeta(meta = {}) {
+    const base = defaultMeta(meta.dayType || 'normal');
+    return recalculateTargets({
+      ...base,
+      ...meta,
+      macroRatio: { ...base.macroRatio, ...(meta.macroRatio || {}) },
+      macroGrams: { ...base.macroGrams, ...(meta.macroGrams || {}) },
+      mealRatio: { ...base.mealRatio, ...(meta.mealRatio || {}) },
     });
   }
-  foodInput.addEventListener('change', async () => {
-    const name = foodInput.value.trim();
-    if (!name) return;
-    const match = (await getAllFoods()).find(f => f.name === name);
-    if (match) calInput.value = match.cal;
-  });
 
-  // —— 初始化 & 首次渲染 —— 
-  window.addEventListener('load', async () => {
-    await reloadFoodList();
-    dateInput.value = new Date().toISOString().slice(0,10);
-    renderRecords(dateInput.value);
-  });
-  dateInput.addEventListener('change', async () => {
-    await reloadFoodList();
-    renderRecords(dateInput.value);
-  });
-
-  // —— 保存 & 渲染 目标热量 —— 
-  goalInput.addEventListener('input', async () => {
-    const date = dateInput.value;
-    const meta = await fetchMeta(date);
-    meta.goalCalories = goalInput.value;
-    await saveMeta(date, meta);
-    goalDisplay.textContent = goalInput.value;
-    renderRecords(date);
-  });
-
-  // —— 保存 体重 —— 
-  weightInput.addEventListener('input', async () => {
-    const date = dateInput.value;
-    const meta = await fetchMeta(date);
-    meta.weight = weightInput.value;
-    await saveMeta(date, meta);
-  });
-
-  // —— 添加食物记录 + 待审核 —— 
-  addBtn.addEventListener('click', async () => {
-    const date = dateInput.value;
-    const food = foodInput.value.trim();
-    const qty  = parseFloat(qtyInput.value);
-    const cal  = parseInt(calInput.value);
-    const cat  = catSelect.value;
-    if (!food || isNaN(qty) || isNaN(cal)) {
-      return alert('请填写「食物」「数量」「热量」三项');
-    }
-    const approvedList = await getAllFoods();
-    const existsApproved = approvedList.some(f => f.name === food);
-    if (!existsApproved) {
-      await addPendingFood({ name: food, cal });
-      alert('新食物已提交审核，通过后将显示在下拉列表中');
-    }
-    // 添加到当天记录
-    const rec = { id: Date.now(), food, qty, cal, cat };
-    const list = await fetchRecords(date);
-    list.push(rec);
-    await saveRecords(date, list);
-    foodInput.value = qtyInput.value = calInput.value = '';
-    renderRecords(date);
-  });
-
-  // —— 渲染函数 —— 
-  async function renderRecords(date) {
-    const meta    = await fetchMeta(date);
-    goalInput.value       = meta.goalCalories || goalInput.value;
-    goalDisplay.textContent = goalInput.value;
-    weightInput.value     = meta.weight || '';
-
-    const records = await fetchRecords(date);
-    Object.values(lists).forEach(ul => ul.innerHTML = '');
-    let total = 0;
-    for (const rec of records) {
-      const lineCal = rec.qty * rec.cal;
-      total += lineCal;
-      const li = document.createElement('li');
-      li.textContent = `${rec.food} ×${rec.qty}，${lineCal} cal`;
-      lists[rec.cat].appendChild(li);
-    }
-
-    totalEl.textContent  = total;
-    remainEl.textContent = Math.max((parseInt(goalInput.value)||0) - total, 0);
+  function getRecordMeal(rec) {
+    const legacyMap = { '早餐': 'meal1', '午餐': 'meal2', '晚餐': 'meal3', '零食': 'snack' };
+    return rec.meal || legacyMap[rec.cat] || 'meal1';
   }
+
+  function recordTotals(records) {
+    return records.reduce((sum, rec) => {
+      const qty = toNumber(rec.qty);
+      sum.calories += qty * toNumber(rec.cal);
+      sum.protein += qty * toNumber(rec.protein);
+      sum.carbs += qty * toNumber(rec.carbs);
+      sum.fat += qty * toNumber(rec.fat);
+      return sum;
+    }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
+  }
+
+  function targetTotals() {
+    return {
+      calories: toNumber(currentMeta.targetCalories),
+      protein: toNumber(currentMeta.macroGrams.protein),
+      carbs: toNumber(currentMeta.macroGrams.carbs),
+      fat: toNumber(currentMeta.macroGrams.fat),
+    };
+  }
+
+  function mealTarget(mealId) {
+    const ratio = toNumber(currentMeta.mealRatio[mealId]) / 100;
+    const targets = targetTotals();
+    return {
+      calories: targets.calories * ratio,
+      protein: targets.protein * ratio,
+      carbs: targets.carbs * ratio,
+      fat: targets.fat * ratio,
+    };
+  }
+
+  function goTo(page) {
+    window.location.href = `${page}?date=${encodeURIComponent(dateInput.value)}`;
+  }
+
+  function renderSummary() {
+    const totals = recordTotals(currentRecords);
+    const targets = targetTotals();
+    dayTypeBadge.textContent = currentMeta.targetConfigured
+      ? (dayTemplates[currentMeta.dayType]?.label || '普通日')
+      : '选择你的目标';
+    todayBtn.textContent = formatDateLabel(dateInput.value);
+
+    Object.entries(summaryEls).forEach(([key, els]) => {
+      const eaten = rounded(totals[key]);
+      const target = rounded(targets[key]);
+      const percent = target > 0 ? Math.min((eaten / target) * 100, 100) : 0;
+      els.eaten.textContent = eaten;
+      els.target.textContent = target;
+      els.ring.style.setProperty('--progress', `${percent}%`);
+    });
+  }
+
+  function renderMeals() {
+    mealList.innerHTML = meals.map(meal => {
+      const records = currentRecords.filter(rec => getRecordMeal(rec) === meal.id);
+      const totals = recordTotals(records);
+      const target = mealTarget(meal.id);
+
+      return `
+        <article class="card meal-card">
+          <button class="meal-head" type="button" data-meal="${meal.id}">
+            <span>
+              <strong>${meal.title}</strong>
+              <small>${records.length ? `${records.length} 个食物 · ${rounded(totals.calories)} kcal` : '请添加食物'}</small>
+              <em>建议 ${rounded(target.calories)} kcal · P ${rounded(target.protein)}g / C ${rounded(target.carbs)}g / F ${rounded(target.fat)}g</em>
+            </span>
+            <b>›</b>
+          </button>
+        </article>
+      `;
+    }).join('');
+  }
+
+  function loadDay(date) {
+    dateInput.value = date;
+    currentMeta = normalizeMeta(readJson(`meta_${date}`, {}));
+    currentRecords = readJson(`records_${date}`, []);
+    renderSummary();
+    renderMeals();
+  }
+
+  dayTypeBadge.addEventListener('click', () => goTo('goal.html'));
+  mealList.addEventListener('click', event => {
+    const button = event.target.closest('[data-meal]');
+    if (button) {
+      window.location.href = `meal.html?date=${encodeURIComponent(dateInput.value)}&meal=${encodeURIComponent(button.dataset.meal)}`;
+    }
+  });
+  todayBtn.addEventListener('click', () => {
+    dateInput.showPicker?.();
+    dateInput.focus();
+  });
+  dateInput.addEventListener('change', () => loadDay(dateInput.value));
+  prevDayBtn.addEventListener('click', () => loadDay(shiftDate(dateInput.value, -1)));
+  nextDayBtn.addEventListener('click', () => loadDay(shiftDate(dateInput.value, 1)));
+  window.addEventListener('load', () => {
+    const params = new URLSearchParams(window.location.search);
+    loadDay(params.get('date') || todayString());
+  });
   </script>
 </body>
 </html>

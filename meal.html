@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>餐次记录 - BiteNotes</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="page-top">
+    <button class="back-btn" id="backBtn" type="button">‹</button>
+    <h1 id="mealTitle">第 1 餐</h1>
+    <span></span>
+  </header>
+
+  <main>
+    <section class="card settings-card">
+      <div class="meal-macros">
+        <div>
+          <span>本餐建议</span>
+          <strong id="targetCalories">0 kcal</strong>
+          <small id="targetMacros">P 0g / C 0g / F 0g</small>
+        </div>
+        <div>
+          <span>本餐已吃</span>
+          <strong id="eatenCalories">0 kcal</strong>
+          <small id="eatenMacros">P 0g / C 0g / F 0g</small>
+        </div>
+      </div>
+    </section>
+
+    <section class="card settings-card">
+      <p class="subhead">已添加食物</p>
+      <ul class="food-records" id="foodRecords"></ul>
+    </section>
+
+    <section class="card settings-card">
+      <p class="subhead">添加食物</p>
+      <form class="food-form" id="foodForm">
+        <input type="text" name="food" list="foodList" placeholder="食物名称，例如 鸡胸肉" required />
+        <div class="form-pair">
+          <input type="number" name="qty" placeholder="数量/份数" min="0" step="0.1" required />
+          <input type="text" name="unit" placeholder="单位：份/个/100g" />
+        </div>
+        <div class="form-pair">
+          <input type="number" name="cal" placeholder="每份 kcal" min="0" step="1" required />
+          <input type="number" name="protein" placeholder="蛋白质 g" min="0" step="0.1" />
+        </div>
+        <div class="form-pair">
+          <input type="number" name="carbs" placeholder="碳水 g" min="0" step="0.1" />
+          <input type="number" name="fat" placeholder="脂肪 g" min="0" step="0.1" />
+        </div>
+        <button type="submit">添加食物</button>
+      </form>
+    </section>
+  </main>
+
+  <datalist id="foodList"></datalist>
+
+  <script>
+  const FOOD_LIBRARY_KEY = 'foodLibrary';
+  const PENDING_FOOD_KEY = 'pendingFood';
+  const dayTemplates = {
+    normal: { label: '普通日', calories: 1800, ratio: { protein: 30, carbs: 40, fat: 30 } },
+    training: { label: '训练日', calories: 2000, ratio: { protein: 30, carbs: 45, fat: 25 } },
+    highCarb: { label: '高碳日', calories: 2100, ratio: { protein: 25, carbs: 55, fat: 20 } },
+    lowCarb: { label: '低碳日', calories: 1600, ratio: { protein: 35, carbs: 25, fat: 40 } },
+    rest: { label: '休息日', calories: 1700, ratio: { protein: 35, carbs: 30, fat: 35 } },
+  };
+  const defaultMealRatio = { meal1: 30, meal2: 35, meal3: 25, snack: 10 };
+  const meals = {
+    meal1: '第 1 餐',
+    meal2: '第 2 餐',
+    meal3: '第 3 餐',
+    snack: '加餐',
+  };
+  const params = new URLSearchParams(window.location.search);
+  const date = params.get('date') || new Date().toISOString().slice(0, 10);
+  const meal = meals[params.get('meal')] ? params.get('meal') : 'meal1';
+
+  let currentMeta = normalizeMeta(readJson(`meta_${date}`, {}));
+  let currentRecords = readJson(`records_${date}`, []);
+  let foodLibrary = readJson(FOOD_LIBRARY_KEY, []);
+
+  const foodRecords = document.getElementById('foodRecords');
+  const foodForm = document.getElementById('foodForm');
+
+  function readJson(key, fallback) {
+    const data = localStorage.getItem(key);
+    try {
+      return data ? JSON.parse(data) : fallback;
+    } catch (error) {
+      console.error(`读取 ${key} 失败：`, error);
+      return fallback;
+    }
+  }
+
+  function writeJson(key, value) {
+    localStorage.setItem(key, JSON.stringify(value));
+  }
+
+  function toNumber(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : 0;
+  }
+
+  function rounded(value) {
+    return Math.round(toNumber(value));
+  }
+
+  function gramsFromRatio(calories, ratio) {
+    return {
+      protein: rounded((calories * toNumber(ratio.protein) / 100) / 4),
+      carbs: rounded((calories * toNumber(ratio.carbs) / 100) / 4),
+      fat: rounded((calories * toNumber(ratio.fat) / 100) / 9),
+    };
+  }
+
+  function caloriesFromGrams(grams) {
+    return rounded(toNumber(grams.protein) * 4 + toNumber(grams.carbs) * 4 + toNumber(grams.fat) * 9);
+  }
+
+  function defaultMeta(dayType = 'normal') {
+    const template = dayTemplates[dayType] || dayTemplates.normal;
+    return {
+      dayType,
+      targetMode: 'ratio',
+      targetCalories: template.calories,
+      macroRatio: { ...template.ratio },
+      macroGrams: gramsFromRatio(template.calories, template.ratio),
+      mealRatio: { ...defaultMealRatio },
+      targetConfigured: false,
+    };
+  }
+
+  function recalculateTargets(meta) {
+    if (meta.targetMode === 'grams') {
+      meta.targetCalories = caloriesFromGrams(meta.macroGrams);
+    } else {
+      meta.macroGrams = gramsFromRatio(toNumber(meta.targetCalories), meta.macroRatio);
+    }
+    return meta;
+  }
+
+  function normalizeMeta(meta = {}) {
+    const base = defaultMeta(meta.dayType || 'normal');
+    return recalculateTargets({
+      ...base,
+      ...meta,
+      macroRatio: { ...base.macroRatio, ...(meta.macroRatio || {}) },
+      macroGrams: { ...base.macroGrams, ...(meta.macroGrams || {}) },
+      mealRatio: { ...base.mealRatio, ...(meta.mealRatio || {}) },
+    });
+  }
+
+  function getRecordMeal(rec) {
+    const legacyMap = { '早餐': 'meal1', '午餐': 'meal2', '晚餐': 'meal3', '零食': 'snack' };
+    return rec.meal || legacyMap[rec.cat] || 'meal1';
+  }
+
+  function recordTotals(records) {
+    return records.reduce((sum, rec) => {
+      const qty = toNumber(rec.qty);
+      sum.calories += qty * toNumber(rec.cal);
+      sum.protein += qty * toNumber(rec.protein);
+      sum.carbs += qty * toNumber(rec.carbs);
+      sum.fat += qty * toNumber(rec.fat);
+      return sum;
+    }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
+  }
+
+  function targetTotals() {
+    return {
+      calories: toNumber(currentMeta.targetCalories),
+      protein: toNumber(currentMeta.macroGrams.protein),
+      carbs: toNumber(currentMeta.macroGrams.carbs),
+      fat: toNumber(currentMeta.macroGrams.fat),
+    };
+  }
+
+  function mealTarget() {
+    const ratio = toNumber(currentMeta.mealRatio[meal]) / 100;
+    const targets = targetTotals();
+    return {
+      calories: targets.calories * ratio,
+      protein: targets.protein * ratio,
+      carbs: targets.carbs * ratio,
+      fat: targets.fat * ratio,
+    };
+  }
+
+  function backHome() {
+    window.location.href = `index.html?date=${encodeURIComponent(date)}`;
+  }
+
+  function renderFoodList() {
+    const dataList = document.getElementById('foodList');
+    dataList.innerHTML = '';
+    foodLibrary.forEach(item => {
+      const option = document.createElement('option');
+      option.value = item.name;
+      dataList.appendChild(option);
+    });
+  }
+
+  function render() {
+    const records = currentRecords.filter(rec => getRecordMeal(rec) === meal);
+    const totals = recordTotals(records);
+    const target = mealTarget();
+
+    document.getElementById('mealTitle').textContent = meals[meal];
+    document.getElementById('targetCalories').textContent = `${rounded(target.calories)} kcal`;
+    document.getElementById('targetMacros').textContent = `P ${rounded(target.protein)}g / C ${rounded(target.carbs)}g / F ${rounded(target.fat)}g`;
+    document.getElementById('eatenCalories').textContent = `${rounded(totals.calories)} kcal`;
+    document.getElementById('eatenMacros').textContent = `P ${rounded(totals.protein)}g / C ${rounded(totals.carbs)}g / F ${rounded(totals.fat)}g`;
+    foodRecords.innerHTML = records.length
+      ? records.map(rec => `
+        <li>
+          <span>${rec.food} × ${rec.qty}${rec.unit || ''}</span>
+          <small>${rounded(toNumber(rec.qty) * toNumber(rec.cal))} kcal</small>
+          <button class="delete-food-btn" type="button" data-id="${rec.id}">删除</button>
+        </li>
+      `).join('')
+      : '<li class="empty-food">还没有添加食物</li>';
+  }
+
+  foodForm.addEventListener('input', event => {
+    if (event.target.name !== 'food') return;
+    const match = foodLibrary.find(item => item.name === event.target.value.trim());
+    if (!match) return;
+
+    foodForm.elements.cal.value = match.cal ?? match.calories ?? '';
+    foodForm.elements.protein.value = match.protein ?? '';
+    foodForm.elements.carbs.value = match.carbs ?? '';
+    foodForm.elements.fat.value = match.fat ?? '';
+    foodForm.elements.unit.value = match.unit ?? '份';
+  });
+
+  foodForm.addEventListener('submit', event => {
+    event.preventDefault();
+    const food = foodForm.elements.food.value.trim();
+    const qty = toNumber(foodForm.elements.qty.value);
+    const cal = toNumber(foodForm.elements.cal.value);
+    const unit = foodForm.elements.unit.value.trim() || '份';
+    const protein = toNumber(foodForm.elements.protein.value);
+    const carbs = toNumber(foodForm.elements.carbs.value);
+    const fat = toNumber(foodForm.elements.fat.value);
+
+    if (!food || qty <= 0 || cal <= 0) {
+      alert('请填写食物、数量和每份热量');
+      return;
+    }
+
+    if (!foodLibrary.some(item => item.name === food)) {
+      const pending = readJson(PENDING_FOOD_KEY, []).filter(item => item.name !== food);
+      pending.push({ name: food, cal, protein, carbs, fat, unit });
+      writeJson(PENDING_FOOD_KEY, pending);
+      alert('新食物已提交审核，通过后将显示在下拉列表中');
+    }
+
+    currentRecords.push({ id: Date.now(), meal, food, qty, unit, cal, protein, carbs, fat });
+    writeJson(`records_${date}`, currentRecords);
+    foodForm.reset();
+    render();
+  });
+
+  foodRecords.addEventListener('click', event => {
+    const button = event.target.closest('.delete-food-btn');
+    if (!button) return;
+    currentRecords = currentRecords.filter(rec => rec.id !== Number(button.dataset.id));
+    writeJson(`records_${date}`, currentRecords);
+    render();
+  });
+
+  document.getElementById('backBtn').addEventListener('click', backHome);
+  window.addEventListener('load', () => {
+    renderFoodList();
+    render();
+  });
+  </script>
+</body>
+</html>
