@@ -18,42 +18,46 @@
   </header>
 
   <main>
-    <section class="card target-card">
+    <section class="card budget-card">
       <div class="section-title">
         <div>
-          <h1>营养目标</h1>
           <button class="day-badge" id="dayTypeBadge" type="button">选择你的目标</button>
         </div>
       </div>
 
-      <div class="target-rings">
-        <div class="ring-stat" id="calorieRing">
-          <div class="ring">
-            <strong id="eatenCalories">0</strong>
-            <span>/<b id="targetCalories">1800</b></span>
-          </div>
-          <p>热量 (kcal)</p>
+      <div class="budget-main">
+        <div>
+          <span>今日还可摄入</span>
+          <strong><b id="remainingCalories">1800</b><small>kcal</small></strong>
+          <p><b id="eatenCalories">0</b> / <b id="targetCalories">1800</b> kcal 已使用</p>
         </div>
-        <div class="ring-stat" id="carbsRing">
-          <div class="ring">
-            <strong id="eatenCarbs">0</strong>
-            <span>/<b id="targetCarbs">180</b>g</span>
-          </div>
-          <p>碳水 (g)</p>
+        <div class="budget-token">
+          <span>剩余比例</span>
+          <strong id="remainingPercent">100%</strong>
         </div>
-        <div class="ring-stat" id="proteinRing">
-          <div class="ring">
-            <strong id="eatenProtein">0</strong>
-            <span>/<b id="targetProtein">135</b>g</span>
-          </div>
-          <p>蛋白质 (g)</p>
+      </div>
+      <div class="budget-bar">
+        <span id="caloriesFill"></span>
+      </div>
+
+      <div class="macro-budget-grid">
+        <div class="macro-budget">
+          <span>蛋白质</span>
+          <strong>还可摄入 <b id="remainingProtein">135</b>g</strong>
+          <small><b id="eatenProtein">0</b> / <b id="targetProtein">135</b>g</small>
+          <i><em id="proteinFill"></em></i>
         </div>
-        <div class="ring-stat" id="fatRing">
-          <div class="ring">
-            <strong id="eatenFat">0</strong>
-            <span>/<b id="targetFat">60</b>g</span>
-          </div>
-          <p>脂肪 (g)</p>
+        <div class="macro-budget">
+          <span>碳水</span>
+          <strong>还可摄入 <b id="remainingCarbs">180</b>g</strong>
+          <small><b id="eatenCarbs">0</b> / <b id="targetCarbs">180</b>g</small>
+          <i><em id="carbsFill"></em></i>
+        </div>
+        <div class="macro-budget">
+          <span>脂肪</span>
+          <strong>还可摄入 <b id="remainingFat">60</b>g</strong>
+          <small><b id="eatenFat">0</b> / <b id="targetFat">60</b>g</small>
+          <i><em id="fatFill"></em></i>
         </div>
       </div>
     </section>
@@ -84,11 +88,32 @@
   const dayTypeBadge = document.getElementById('dayTypeBadge');
   const mealList = document.getElementById('mealList');
   const summaryEls = {
-    calories: { eaten: document.getElementById('eatenCalories'), target: document.getElementById('targetCalories'), ring: document.getElementById('calorieRing') },
-    carbs: { eaten: document.getElementById('eatenCarbs'), target: document.getElementById('targetCarbs'), ring: document.getElementById('carbsRing') },
-    protein: { eaten: document.getElementById('eatenProtein'), target: document.getElementById('targetProtein'), ring: document.getElementById('proteinRing') },
-    fat: { eaten: document.getElementById('eatenFat'), target: document.getElementById('targetFat'), ring: document.getElementById('fatRing') },
+    calories: {
+      eaten: document.getElementById('eatenCalories'),
+      target: document.getElementById('targetCalories'),
+      remaining: document.getElementById('remainingCalories'),
+      fill: document.getElementById('caloriesFill'),
+    },
+    carbs: {
+      eaten: document.getElementById('eatenCarbs'),
+      target: document.getElementById('targetCarbs'),
+      remaining: document.getElementById('remainingCarbs'),
+      fill: document.getElementById('carbsFill'),
+    },
+    protein: {
+      eaten: document.getElementById('eatenProtein'),
+      target: document.getElementById('targetProtein'),
+      remaining: document.getElementById('remainingProtein'),
+      fill: document.getElementById('proteinFill'),
+    },
+    fat: {
+      eaten: document.getElementById('eatenFat'),
+      target: document.getElementById('targetFat'),
+      remaining: document.getElementById('remainingFat'),
+      fill: document.getElementById('fatFill'),
+    },
   };
+  const remainingPercent = document.getElementById('remainingPercent');
 
   let currentMeta = {};
   let currentRecords = [];
@@ -225,10 +250,17 @@
       const eaten = rounded(totals[key]);
       const target = rounded(targets[key]);
       const percent = target > 0 ? Math.min((eaten / target) * 100, 100) : 0;
+      const remaining = Math.max(target - eaten, 0);
       els.eaten.textContent = eaten;
       els.target.textContent = target;
-      els.ring.style.setProperty('--progress', `${percent}%`);
+      els.remaining.textContent = remaining;
+      els.fill.style.width = `${percent}%`;
     });
+    const calorieTarget = rounded(targets.calories);
+    const calorieEaten = rounded(totals.calories);
+    remainingPercent.textContent = calorieTarget > 0
+      ? `${Math.max(100 - Math.round((calorieEaten / calorieTarget) * 100), 0)}%`
+      : '0%';
   }
 
   function renderMeals() {
@@ -236,13 +268,15 @@
       const records = currentRecords.filter(rec => getRecordMeal(rec) === meal.id);
       const totals = recordTotals(records);
       const target = mealTarget(meal.id);
+      const remaining = Math.max(rounded(target.calories) - rounded(totals.calories), 0);
 
       return `
         <article class="card meal-card">
           <button class="meal-head" type="button" data-meal="${meal.id}">
             <span>
               <strong>${meal.title}</strong>
-              <small>${records.length ? `${records.length} 个食物 · ${rounded(totals.calories)} kcal` : '请添加食物'}</small>
+              <small>${records.length ? `${records.length} 个食物 · 已吃 ${rounded(totals.calories)} kcal` : '请添加食物'}</small>
+              <em>本餐还可摄入 ${remaining} kcal · 建议 ${rounded(target.calories)} kcal</em>
               <em>建议 ${rounded(target.calories)} kcal · P ${rounded(target.protein)}g / C ${rounded(target.carbs)}g / F ${rounded(target.fat)}g</em>
             </span>
             <b>›</b>

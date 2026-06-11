@@ -1,12 +1,14 @@
 :root {
-  --bg: #f5f5f5;
+  --bg: #f6f7f4;
   --card: #ffffff;
   --text: #161616;
   --muted: #9a9a9a;
   --line: #ececec;
-  --blue: #1479ff;
-  --blue-soft: #e8f3ff;
-  --ring-track: #f0f0f0;
+  --blue: #0f7b68;
+  --blue-soft: #e6f4ef;
+  --ink-soft: #f3efe4;
+  --accent: #f3b13f;
+  --ring-track: #ecece6;
 }
 
 * {
@@ -123,8 +125,11 @@ main {
   border-radius: 8px;
 }
 
-.target-card {
-  padding: 24px 20px 22px;
+.budget-card {
+  padding: 22px 20px 20px;
+  background:
+    linear-gradient(135deg, rgba(15, 123, 104, 0.08), rgba(243, 177, 63, 0.12)),
+    var(--card);
 }
 
 .section-title {
@@ -132,96 +137,145 @@ main {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 24px;
-}
-
-.section-title h1 {
-  display: inline;
-  margin: 0;
-  font-size: 25px;
-  line-height: 1.15;
-  letter-spacing: 0;
+  margin-bottom: 20px;
 }
 
 .day-badge {
   display: inline-flex;
   align-items: center;
-  margin-left: 8px;
-  padding: 4px 8px;
+  padding: 12px 16px;
   border: 0;
-  border-radius: 5px;
+  border-radius: 8px;
   background: var(--blue-soft);
   color: var(--blue);
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 18px;
+  font-weight: 900;
   vertical-align: 4px;
 }
 
 .day-badge::after {
   content: "›";
-  margin-left: 4px;
-  font-size: 15px;
-  line-height: 1;
-}
-
-.target-rings {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-}
-
-.ring-stat {
-  min-width: 0;
-  text-align: center;
-  --progress: 0%;
-}
-
-.ring {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: min(78px, 18vw);
-  height: min(78px, 18vw);
-  min-width: 62px;
-  min-height: 62px;
-  margin: 0 auto 12px;
-  border-radius: 50%;
-  background: conic-gradient(var(--blue) var(--progress), var(--ring-track) 0);
-}
-
-.ring::after {
-  position: absolute;
-  inset: 7px;
-  content: "";
-  border-radius: 50%;
-  background: #fff;
-}
-
-.ring strong,
-.ring span {
-  position: relative;
-  z-index: 1;
-}
-
-.ring strong {
-  align-self: end;
+  margin-left: 8px;
   font-size: 20px;
   line-height: 1;
 }
 
-.ring span {
-  align-self: start;
-  color: #777;
-  font-size: 12px;
-  line-height: 1.4;
+.budget-main {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  align-items: center;
 }
 
-.ring p,
-.ring-stat p {
-  margin: 0;
-  font-size: 15px;
+.budget-main span {
+  color: #666;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.budget-main strong {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 48px;
+  line-height: 1;
+}
+
+.budget-main strong small {
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.budget-main p {
+  margin: 9px 0 0;
+  color: #777;
+  font-size: 14px;
   font-weight: 700;
-  line-height: 1.25;
+}
+
+.budget-token {
+  display: grid;
+  place-items: center;
+  width: 92px;
+  min-height: 92px;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--ink-soft);
+  text-align: center;
+}
+
+.budget-token span {
+  color: #7b6b4d;
+  font-size: 12px;
+}
+
+.budget-token strong {
+  margin: 0;
+  color: #493a1e;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.budget-bar,
+.macro-budget i {
+  display: block;
+  overflow: hidden;
+  height: 10px;
+  margin-top: 16px;
+  border-radius: 999px;
+  background: rgba(22, 22, 22, 0.08);
+}
+
+.budget-bar span,
+.macro-budget em {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--blue);
+}
+
+.macro-budget-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.macro-budget {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(15, 123, 104, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.macro-budget span {
+  display: block;
+  color: #666;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.macro-budget strong {
+  display: block;
+  margin-top: 5px;
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.macro-budget small {
+  display: block;
+  margin-top: 4px;
+  color: #777;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.macro-budget i {
+  height: 7px;
+  margin-top: 10px;
 }
 
 .settings-card {
@@ -465,16 +519,24 @@ select {
     padding-inline: 10px;
   }
 
-  .target-card {
+  .budget-card {
     padding-inline: 14px;
   }
 
-  .target-rings {
-    gap: 8px;
+  .budget-main {
+    grid-template-columns: 1fr;
   }
 
-  .ring-stat p {
-    font-size: 13px;
+  .budget-token {
+    width: 100%;
+    min-height: auto;
+    grid-template-columns: 1fr auto;
+    place-items: center start;
+    text-align: left;
+  }
+
+  .macro-budget-grid {
+    grid-template-columns: 1fr;
   }
 
   .macro-grid,
