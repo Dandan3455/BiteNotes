@@ -25,39 +25,46 @@
         </div>
       </div>
 
-      <div class="budget-main">
-        <div>
-          <span>今日还可摄入</span>
-          <strong><b id="remainingCalories">1800</b><small>kcal</small></strong>
-          <p><b id="eatenCalories">0</b> / <b id="targetCalories">1800</b> kcal 已使用</p>
-        </div>
-        <div class="budget-token">
-          <span>剩余比例</span>
-          <strong id="remainingPercent">100%</strong>
-        </div>
-      </div>
-      <div class="budget-bar">
-        <span id="caloriesFill"></span>
+      <div class="empty-target-message hidden" id="emptyTargetMessage">
+        <strong>先选择今天的摄入目标</strong>
+        <p>设置目标后，这里会显示今日还可摄入的热量和三大营养素。</p>
       </div>
 
-      <div class="macro-budget-grid">
-        <div class="macro-budget">
-          <span>蛋白质</span>
-          <strong>还可摄入 <b id="remainingProtein">135</b>g</strong>
-          <small><b id="eatenProtein">0</b> / <b id="targetProtein">135</b>g</small>
-          <i><em id="proteinFill"></em></i>
+      <div class="budget-content" id="budgetContent">
+        <div class="budget-main">
+          <div>
+            <span>今日还可摄入</span>
+            <strong><b id="remainingCalories">1800</b><small>kcal</small></strong>
+            <p><b id="eatenCalories">0</b> / <b id="targetCalories">1800</b> kcal 已使用</p>
+          </div>
+          <div class="budget-token">
+            <span>剩余比例</span>
+            <strong id="remainingPercent">100%</strong>
+          </div>
         </div>
-        <div class="macro-budget">
-          <span>碳水</span>
-          <strong>还可摄入 <b id="remainingCarbs">180</b>g</strong>
-          <small><b id="eatenCarbs">0</b> / <b id="targetCarbs">180</b>g</small>
-          <i><em id="carbsFill"></em></i>
+        <div class="budget-bar">
+          <span id="caloriesFill"></span>
         </div>
-        <div class="macro-budget">
-          <span>脂肪</span>
-          <strong>还可摄入 <b id="remainingFat">60</b>g</strong>
-          <small><b id="eatenFat">0</b> / <b id="targetFat">60</b>g</small>
-          <i><em id="fatFill"></em></i>
+
+        <div class="macro-budget-grid">
+          <div class="macro-budget">
+            <span>蛋白质</span>
+            <strong>还可摄入 <b id="remainingProtein">--</b>g</strong>
+            <small><b id="eatenProtein">--</b> / <b id="targetProtein">--</b>g</small>
+            <i><em id="proteinFill"></em></i>
+          </div>
+          <div class="macro-budget">
+            <span>碳水</span>
+            <strong>还可摄入 <b id="remainingCarbs">--</b>g</strong>
+            <small><b id="eatenCarbs">--</b> / <b id="targetCarbs">--</b>g</small>
+            <i><em id="carbsFill"></em></i>
+          </div>
+          <div class="macro-budget">
+            <span>脂肪</span>
+            <strong>还可摄入 <b id="remainingFat">--</b>g</strong>
+            <small><b id="eatenFat">--</b> / <b id="targetFat">--</b>g</small>
+            <i><em id="fatFill"></em></i>
+          </div>
         </div>
       </div>
     </section>
@@ -65,27 +72,29 @@
     <section class="meal-list" id="mealList"></section>
   </main>
 
-  <script>
-  const dayTemplates = {
-    normal: { label: '普通日', calories: 1800, ratio: { protein: 30, carbs: 40, fat: 30 } },
-    training: { label: '训练日', calories: 2000, ratio: { protein: 30, carbs: 45, fat: 25 } },
-    highCarb: { label: '高碳日', calories: 2100, ratio: { protein: 25, carbs: 55, fat: 20 } },
-    lowCarb: { label: '低碳日', calories: 1600, ratio: { protein: 35, carbs: 25, fat: 40 } },
-    rest: { label: '休息日', calories: 1700, ratio: { protein: 35, carbs: 30, fat: 35 } },
-  };
-  const defaultMealRatio = { meal1: 30, meal2: 35, meal3: 25, snack: 10 };
-  const meals = [
-    { id: 'meal1', title: '第 1 餐' },
-    { id: 'meal2', title: '第 2 餐' },
-    { id: 'meal3', title: '第 3 餐' },
-    { id: 'snack', title: '加餐' },
-  ];
+  <script type="module">
+  import {
+    dayTemplates,
+    formatDateLabel,
+    getDayMeta,
+    getRecordMeal,
+    getRecords,
+    mealTarget,
+    meals,
+    recordTotals,
+    rounded,
+    shiftDate,
+    targetTotals,
+    todayString,
+  } from './goalService.js';
 
   const dateInput = document.getElementById('datePicker');
   const todayBtn = document.getElementById('todayBtn');
   const prevDayBtn = document.getElementById('prevDayBtn');
   const nextDayBtn = document.getElementById('nextDayBtn');
   const dayTypeBadge = document.getElementById('dayTypeBadge');
+  const budgetContent = document.getElementById('budgetContent');
+  const emptyTargetMessage = document.getElementById('emptyTargetMessage');
   const mealList = document.getElementById('mealList');
   const summaryEls = {
     calories: {
@@ -118,133 +127,23 @@
   let currentMeta = {};
   let currentRecords = [];
 
-  function readJson(key, fallback) {
-    const data = localStorage.getItem(key);
-    try {
-      return data ? JSON.parse(data) : fallback;
-    } catch (error) {
-      console.error(`读取 ${key} 失败：`, error);
-      return fallback;
-    }
-  }
-
-  function todayString() {
-    return new Date().toISOString().slice(0, 10);
-  }
-
-  function shiftDate(date, days) {
-    const next = new Date(`${date}T00:00:00`);
-    next.setDate(next.getDate() + days);
-    return next.toISOString().slice(0, 10);
-  }
-
-  function formatDateLabel(date) {
-    if (date === todayString()) return '今日 ▾';
-    const [, month, day] = date.split('-');
-    return `${Number(month)}月${Number(day)}日 ▾`;
-  }
-
-  function toNumber(value) {
-    const number = Number(value);
-    return Number.isFinite(number) ? number : 0;
-  }
-
-  function rounded(value) {
-    return Math.round(toNumber(value));
-  }
-
-  function gramsFromRatio(calories, ratio) {
-    return {
-      protein: rounded((calories * toNumber(ratio.protein) / 100) / 4),
-      carbs: rounded((calories * toNumber(ratio.carbs) / 100) / 4),
-      fat: rounded((calories * toNumber(ratio.fat) / 100) / 9),
-    };
-  }
-
-  function caloriesFromGrams(grams) {
-    return rounded(toNumber(grams.protein) * 4 + toNumber(grams.carbs) * 4 + toNumber(grams.fat) * 9);
-  }
-
-  function defaultMeta(dayType = 'normal') {
-    const template = dayTemplates[dayType] || dayTemplates.normal;
-    return {
-      dayType,
-      targetMode: 'ratio',
-      targetCalories: template.calories,
-      macroRatio: { ...template.ratio },
-      macroGrams: gramsFromRatio(template.calories, template.ratio),
-      mealRatio: { ...defaultMealRatio },
-      targetConfigured: false,
-    };
-  }
-
-  function recalculateTargets(meta) {
-    if (meta.targetMode === 'grams') {
-      meta.targetCalories = caloriesFromGrams(meta.macroGrams);
-    } else {
-      meta.macroGrams = gramsFromRatio(toNumber(meta.targetCalories), meta.macroRatio);
-    }
-    return meta;
-  }
-
-  function normalizeMeta(meta = {}) {
-    const base = defaultMeta(meta.dayType || 'normal');
-    return recalculateTargets({
-      ...base,
-      ...meta,
-      macroRatio: { ...base.macroRatio, ...(meta.macroRatio || {}) },
-      macroGrams: { ...base.macroGrams, ...(meta.macroGrams || {}) },
-      mealRatio: { ...base.mealRatio, ...(meta.mealRatio || {}) },
-    });
-  }
-
-  function getRecordMeal(rec) {
-    const legacyMap = { '早餐': 'meal1', '午餐': 'meal2', '晚餐': 'meal3', '零食': 'snack' };
-    return rec.meal || legacyMap[rec.cat] || 'meal1';
-  }
-
-  function recordTotals(records) {
-    return records.reduce((sum, rec) => {
-      const qty = toNumber(rec.qty);
-      sum.calories += qty * toNumber(rec.cal);
-      sum.protein += qty * toNumber(rec.protein);
-      sum.carbs += qty * toNumber(rec.carbs);
-      sum.fat += qty * toNumber(rec.fat);
-      return sum;
-    }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
-  }
-
-  function targetTotals() {
-    return {
-      calories: toNumber(currentMeta.targetCalories),
-      protein: toNumber(currentMeta.macroGrams.protein),
-      carbs: toNumber(currentMeta.macroGrams.carbs),
-      fat: toNumber(currentMeta.macroGrams.fat),
-    };
-  }
-
-  function mealTarget(mealId) {
-    const ratio = toNumber(currentMeta.mealRatio[mealId]) / 100;
-    const targets = targetTotals();
-    return {
-      calories: targets.calories * ratio,
-      protein: targets.protein * ratio,
-      carbs: targets.carbs * ratio,
-      fat: targets.fat * ratio,
-    };
-  }
-
   function goTo(page) {
     window.location.href = `${page}?date=${encodeURIComponent(dateInput.value)}`;
   }
 
   function renderSummary() {
     const totals = recordTotals(currentRecords);
-    const targets = targetTotals();
+    const targets = targetTotals(currentMeta);
     dayTypeBadge.textContent = currentMeta.targetConfigured
-      ? (dayTemplates[currentMeta.dayType]?.label || '普通日')
+      ? (dayTemplates[currentMeta.dayType]?.label || '训练日')
       : '选择你的目标';
     todayBtn.textContent = formatDateLabel(dateInput.value);
+    budgetContent.classList.toggle('hidden', !currentMeta.targetConfigured);
+    emptyTargetMessage.classList.toggle('hidden', currentMeta.targetConfigured);
+
+    if (!currentMeta.targetConfigured) {
+      return;
+    }
 
     Object.entries(summaryEls).forEach(([key, els]) => {
       const eaten = rounded(totals[key]);
@@ -267,17 +166,27 @@
     mealList.innerHTML = meals.map(meal => {
       const records = currentRecords.filter(rec => getRecordMeal(rec) === meal.id);
       const totals = recordTotals(records);
-      const target = mealTarget(meal.id);
-      const remaining = Math.max(rounded(target.calories) - rounded(totals.calories), 0);
+      const mealSummary = currentMeta.targetConfigured
+        ? (records.length ? `${records.length} 个食物 · 已吃 ${rounded(totals.calories)} kcal` : '请添加食物')
+        : (records.length ? `${records.length} 个食物` : '请添加食物');
+      const mealDetail = currentMeta.targetConfigured
+        ? (() => {
+            const target = mealTarget(currentMeta, meal.id);
+            const remaining = Math.max(rounded(target.calories) - rounded(totals.calories), 0);
+            return `
+              <em>本餐还可摄入 ${remaining} kcal · 建议 ${rounded(target.calories)} kcal</em>
+              <em>P ${rounded(target.protein)}g / C ${rounded(target.carbs)}g / F ${rounded(target.fat)}g</em>
+            `;
+          })()
+        : '<em>先设置目标后查看本餐建议</em>';
 
       return `
         <article class="card meal-card">
           <button class="meal-head" type="button" data-meal="${meal.id}">
             <span>
               <strong>${meal.title}</strong>
-              <small>${records.length ? `${records.length} 个食物 · 已吃 ${rounded(totals.calories)} kcal` : '请添加食物'}</small>
-              <em>本餐还可摄入 ${remaining} kcal · 建议 ${rounded(target.calories)} kcal</em>
-              <em>建议 ${rounded(target.calories)} kcal · P ${rounded(target.protein)}g / C ${rounded(target.carbs)}g / F ${rounded(target.fat)}g</em>
+              <small>${mealSummary}</small>
+              ${mealDetail}
             </span>
             <b>›</b>
           </button>
@@ -288,8 +197,8 @@
 
   function loadDay(date) {
     dateInput.value = date;
-    currentMeta = normalizeMeta(readJson(`meta_${date}`, {}));
-    currentRecords = readJson(`records_${date}`, []);
+    currentMeta = getDayMeta(date);
+    currentRecords = getRecords(date);
     renderSummary();
     renderMeals();
   }

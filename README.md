@@ -1,1 +1,64 @@
 # BiteNotes
+
+## Local preview
+
+This project uses a small Express server for static files and food search.
+
+```bash
+npm install
+cp .env.example .env
+npm start
+```
+
+Then visit:
+
+```text
+http://localhost:3000/index.html
+```
+
+`USDA_API_KEY` is optional for local testing. If it is empty, BiteNotes skips USDA and searches Open Food Facts only.
+
+## Build local food dataset
+
+BiteNotes can build a local `server/data/commonFoods.json` from USDA FoodData Central CSV downloads. This keeps food search local-first and reduces API calls.
+
+Download USDA FoodData Central CSV files yourself, then put the raw CSV files here:
+
+```text
+data/usda/raw/
+```
+
+The older `server/data/raw/` folder is also supported for local development, but `data/usda/raw/` is the preferred location going forward.
+
+The build script looks in that folder and its subfolders. You can put one combined CSV export directly in `data/usda/raw/`, or unzip separate USDA datasets into subfolders such as:
+
+```text
+data/usda/raw/foundation/food.csv
+data/usda/raw/sr-legacy/food.csv
+data/usda/raw/fndds/food.csv
+```
+
+Each dataset folder needs at least:
+
+```text
+food.csv
+food_nutrient.csv
+nutrient.csv
+```
+
+Then run:
+
+```bash
+npm run build:foods
+```
+
+The script reads only local CSV files. It does not download USDA archives, does not include Branded data, and does not call any translation API.
+
+Edit these keyword lists to control what goes into the generated local dataset:
+
+```text
+config/includeKeywords.json
+config/excludeKeywords.json
+```
+
+Restart `npm start` after rebuilding `commonFoods.json`.

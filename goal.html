@@ -18,10 +18,7 @@
       <div class="form-row">
         <label for="dayType">今日类型</label>
         <select id="dayType">
-          <option value="normal">普通日</option>
           <option value="training">训练日</option>
-          <option value="highCarb">高碳日</option>
-          <option value="lowCarb">低碳日</option>
           <option value="rest">休息日</option>
         </select>
       </div>
@@ -50,7 +47,7 @@
             <input type="number" id="fatPercent" min="0" max="100" step="1" />
           </label>
         </div>
-        <p class="ratio-status" id="macroRatioStatus">供能比例已分配 100%，剩余 0%</p>
+        <p class="ratio-status" id="macroRatioStatus">供能比例待设置</p>
       </div>
 
       <div class="target-mode-panel hidden" id="gramsPanel">
@@ -86,25 +83,28 @@
             <input type="number" class="meal-ratio-input" data-meal="snack" min="0" max="100" step="1" />
           </label>
         </div>
-        <p class="ratio-status" id="mealRatioStatus">已分配 100%，剩余 0%</p>
+        <p class="ratio-status" id="mealRatioStatus">每餐分配待设置</p>
       </div>
 
       <button class="primary-btn" id="saveBtn" type="button">保存目标</button>
     </section>
   </main>
 
-  <script>
-  const dayTemplates = {
-    normal: { label: '普通日', calories: 1800, ratio: { protein: 30, carbs: 40, fat: 30 } },
-    training: { label: '训练日', calories: 2000, ratio: { protein: 30, carbs: 45, fat: 25 } },
-    highCarb: { label: '高碳日', calories: 2100, ratio: { protein: 25, carbs: 55, fat: 20 } },
-    lowCarb: { label: '低碳日', calories: 1600, ratio: { protein: 35, carbs: 25, fat: 40 } },
-    rest: { label: '休息日', calories: 1700, ratio: { protein: 35, carbs: 30, fat: 35 } },
-  };
-  const defaultMealRatio = { meal1: 30, meal2: 35, meal3: 25, snack: 10 };
+  <script type="module">
+  import {
+    getGoalProfile,
+    getInitialGoalMeta,
+    hasValue,
+    normalizeMeta,
+    recalculateTargets,
+    rounded,
+    saveDayMeta,
+    toNumber,
+  } from './goalService.js';
+
   const params = new URLSearchParams(window.location.search);
   const date = params.get('date') || new Date().toISOString().slice(0, 10);
-  let currentMeta = normalizeMeta(readJson(`meta_${date}`, {}));
+  let currentMeta = getInitialGoalMeta(date);
 
   const dayType = document.getElementById('dayType');
   const targetMode = document.getElementById('targetMode');
@@ -123,97 +123,8 @@
     fatGrams: document.getElementById('fatGrams'),
   };
 
-  function readJson(key, fallback) {
-    const data = localStorage.getItem(key);
-    try {
-      return data ? JSON.parse(data) : fallback;
-    } catch (error) {
-      console.error(`读取 ${key} 失败：`, error);
-      return fallback;
-    }
-  }
-
-  function writeJson(key, value) {
-    localStorage.setItem(key, JSON.stringify(value));
-  }
-
-  function toNumber(value) {
-    const number = Number(value);
-    return Number.isFinite(number) ? number : 0;
-  }
-
-  function rounded(value) {
-    return Math.round(toNumber(value));
-  }
-
-  function gramsFromRatio(calories, ratio) {
-    return {
-      protein: rounded((calories * toNumber(ratio.protein) / 100) / 4),
-      carbs: rounded((calories * toNumber(ratio.carbs) / 100) / 4),
-      fat: rounded((calories * toNumber(ratio.fat) / 100) / 9),
-    };
-  }
-
-  function caloriesFromGrams(grams) {
-    return rounded(toNumber(grams.protein) * 4 + toNumber(grams.carbs) * 4 + toNumber(grams.fat) * 9);
-  }
-
-  function defaultMeta(dayTypeValue = 'normal') {
-    const template = dayTemplates[dayTypeValue] || dayTemplates.normal;
-    return {
-      dayType: dayTypeValue,
-      targetMode: 'ratio',
-      targetCalories: template.calories,
-      macroRatio: { ...template.ratio },
-      macroGrams: gramsFromRatio(template.calories, template.ratio),
-      mealRatio: { ...defaultMealRatio },
-      targetConfigured: false,
-    };
-  }
-
-  function recalculateTargets(meta) {
-    if (meta.targetMode === 'grams') {
-      meta.targetCalories = caloriesFromGrams(meta.macroGrams);
-    } else {
-      meta.macroGrams = gramsFromRatio(toNumber(meta.targetCalories), meta.macroRatio);
-    }
-    return meta;
-  }
-
-  function normalizeMeta(meta = {}) {
-    const base = defaultMeta(meta.dayType || 'normal');
-    return recalculateTargets({
-      ...base,
-      ...meta,
-      macroRatio: { ...base.macroRatio, ...(meta.macroRatio || {}) },
-      macroGrams: { ...base.macroGrams, ...(meta.macroGrams || {}) },
-      mealRatio: { ...base.mealRatio, ...(meta.mealRatio || {}) },
-    });
-  }
-
   function backHome() {
     window.location.href = `index.html?date=${encodeURIComponent(date)}`;
-  }
-
-  function syncForm() {
-    currentMeta = recalculateTargets(currentMeta);
-    dayType.value = currentMeta.dayType;
-    targetMode.value = currentMeta.targetMode;
-    inputs.goalCalories.value = currentMeta.targetCalories;
-    inputs.proteinPercent.value = currentMeta.macroRatio.protein;
-    inputs.carbsPercent.value = currentMeta.macroRatio.carbs;
-    inputs.fatPercent.value = currentMeta.macroRatio.fat;
-    inputs.proteinGrams.value = currentMeta.macroGrams.protein;
-    inputs.carbsGrams.value = currentMeta.macroGrams.carbs;
-    inputs.fatGrams.value = currentMeta.macroGrams.fat;
-    document.querySelectorAll('.meal-ratio-input').forEach(input => {
-      input.value = currentMeta.mealRatio[input.dataset.meal] || 0;
-    });
-    ratioPanel.classList.toggle('hidden', currentMeta.targetMode !== 'ratio');
-    gramsPanel.classList.toggle('hidden', currentMeta.targetMode !== 'grams');
-    targetPreview.textContent = `${rounded(currentMeta.targetCalories)} kcal · P ${rounded(currentMeta.macroGrams.protein)}g / C ${rounded(currentMeta.macroGrams.carbs)}g / F ${rounded(currentMeta.macroGrams.fat)}g`;
-    updateMacroRatioStatus();
-    updateMealRatioStatus();
   }
 
   function macroRatioInputs() {
@@ -228,34 +139,6 @@
     return Object.values(currentMeta.macroRatio).reduce((sum, value) => sum + toNumber(value), 0);
   }
 
-  function updateMacroRatioStatus() {
-    const total = macroRatioTotal();
-    const remaining = Math.max(100 - total, 0);
-    macroRatioStatus.textContent = `供能比例已分配 ${rounded(total)}%，剩余 ${rounded(remaining)}%`;
-    macroRatioStatus.classList.toggle('complete', rounded(total) === 100);
-    macroRatioStatus.classList.toggle('warning', rounded(total) !== 100);
-
-    macroRatioInputs().forEach(input => {
-      const otherTotal = macroRatioInputs()
-        .filter(other => other !== input)
-        .reduce((sum, other) => sum + toNumber(other.value), 0);
-      input.max = Math.max(100 - otherTotal, 0);
-    });
-  }
-
-  function clampMacroRatio(input) {
-    const otherTotal = macroRatioInputs()
-      .filter(other => other !== input)
-      .reduce((sum, other) => sum + toNumber(other.value), 0);
-    const maxValue = Math.max(100 - otherTotal, 0);
-    const nextValue = Math.min(Math.max(toNumber(input.value), 0), maxValue);
-    input.value = nextValue;
-    currentMeta.macroRatio[macroKeyFromInput(input)] = nextValue;
-    currentMeta = recalculateTargets(currentMeta);
-    updateMacroRatioStatus();
-    targetPreview.textContent = `${rounded(currentMeta.targetCalories)} kcal · P ${rounded(currentMeta.macroGrams.protein)}g / C ${rounded(currentMeta.macroGrams.carbs)}g / F ${rounded(currentMeta.macroGrams.fat)}g`;
-  }
-
   function mealRatioInputs() {
     return Array.from(document.querySelectorAll('.meal-ratio-input'));
   }
@@ -264,41 +147,71 @@
     return Object.values(currentMeta.mealRatio).reduce((sum, value) => sum + toNumber(value), 0);
   }
 
-  function updateMealRatioStatus() {
-    const total = mealRatioTotal();
+  function setRatioStatus(element, label, total) {
     const remaining = Math.max(100 - total, 0);
-    mealRatioStatus.textContent = `已分配 ${rounded(total)}%，剩余 ${rounded(remaining)}%`;
-    mealRatioStatus.classList.toggle('complete', rounded(total) === 100);
-    mealRatioStatus.classList.toggle('warning', rounded(total) !== 100);
+    element.textContent = `${label}已分配 ${rounded(total)}%，剩余 ${rounded(remaining)}%`;
+    element.classList.toggle('complete', rounded(total) === 100);
+    element.classList.toggle('warning', rounded(total) !== 100);
+  }
 
-    mealRatioInputs().forEach(input => {
-      const otherTotal = mealRatioInputs()
+  function updateInputMaxes(inputList) {
+    inputList.forEach(input => {
+      const otherTotal = inputList
         .filter(other => other !== input)
         .reduce((sum, other) => sum + toNumber(other.value), 0);
       input.max = Math.max(100 - otherTotal, 0);
     });
   }
 
-  function clampMealRatio(input) {
-    const otherTotal = mealRatioInputs()
+  function updateMacroRatioStatus() {
+    setRatioStatus(macroRatioStatus, '供能比例', macroRatioTotal());
+    updateInputMaxes(macroRatioInputs());
+  }
+
+  function updateMealRatioStatus() {
+    setRatioStatus(mealRatioStatus, '', mealRatioTotal());
+    updateInputMaxes(mealRatioInputs());
+  }
+
+  function updateTargetPreview() {
+    targetPreview.textContent = hasValue(currentMeta.targetCalories)
+      ? `${rounded(currentMeta.targetCalories)} kcal · P ${rounded(currentMeta.macroGrams.protein)}g / C ${rounded(currentMeta.macroGrams.carbs)}g / F ${rounded(currentMeta.macroGrams.fat)}g`
+      : '待设置：请填写热量和三大营养素';
+  }
+
+  function syncForm() {
+    currentMeta = recalculateTargets(currentMeta);
+    dayType.value = currentMeta.dayType;
+    targetMode.value = currentMeta.targetMode;
+    inputs.goalCalories.value = currentMeta.targetCalories;
+    inputs.proteinPercent.value = currentMeta.macroRatio.protein;
+    inputs.carbsPercent.value = currentMeta.macroRatio.carbs;
+    inputs.fatPercent.value = currentMeta.macroRatio.fat;
+    inputs.proteinGrams.value = currentMeta.macroGrams.protein;
+    inputs.carbsGrams.value = currentMeta.macroGrams.carbs;
+    inputs.fatGrams.value = currentMeta.macroGrams.fat;
+    mealRatioInputs().forEach(input => {
+      input.value = currentMeta.mealRatio[input.dataset.meal] ?? '';
+    });
+    ratioPanel.classList.toggle('hidden', currentMeta.targetMode !== 'ratio');
+    gramsPanel.classList.toggle('hidden', currentMeta.targetMode !== 'grams');
+    updateTargetPreview();
+    updateMacroRatioStatus();
+    updateMealRatioStatus();
+  }
+
+  function clampInput(input, inputList) {
+    const otherTotal = inputList
       .filter(other => other !== input)
       .reduce((sum, other) => sum + toNumber(other.value), 0);
     const maxValue = Math.max(100 - otherTotal, 0);
     const nextValue = Math.min(Math.max(toNumber(input.value), 0), maxValue);
     input.value = nextValue;
-    currentMeta.mealRatio[input.dataset.meal] = nextValue;
-    updateMealRatioStatus();
+    return nextValue;
   }
 
   dayType.addEventListener('change', () => {
-    const next = defaultMeta(dayType.value);
-    currentMeta = {
-      ...currentMeta,
-      dayType: next.dayType,
-      targetCalories: next.targetCalories,
-      macroRatio: next.macroRatio,
-      macroGrams: next.macroGrams,
-    };
+    currentMeta = normalizeMeta(getGoalProfile(dayType.value) || { dayType: dayType.value });
     syncForm();
   });
 
@@ -312,9 +225,12 @@
     syncForm();
   });
 
-  ['proteinPercent', 'carbsPercent', 'fatPercent'].forEach(id => {
-    inputs[id].addEventListener('input', () => {
-      clampMacroRatio(inputs[id]);
+  macroRatioInputs().forEach(input => {
+    input.addEventListener('input', () => {
+      currentMeta.macroRatio[macroKeyFromInput(input)] = clampInput(input, macroRatioInputs());
+      currentMeta = recalculateTargets(currentMeta);
+      updateTargetPreview();
+      updateMacroRatioStatus();
     });
   });
 
@@ -325,13 +241,18 @@
     });
   });
 
-  document.querySelectorAll('.meal-ratio-input').forEach(input => {
+  mealRatioInputs().forEach(input => {
     input.addEventListener('input', () => {
-      clampMealRatio(input);
+      currentMeta.mealRatio[input.dataset.meal] = clampInput(input, mealRatioInputs());
+      updateMealRatioStatus();
     });
   });
 
   document.getElementById('saveBtn').addEventListener('click', () => {
+    if (!hasValue(currentMeta.targetCalories) || toNumber(currentMeta.targetCalories) <= 0) {
+      alert('请先填写今日总热量或三大营养素克数');
+      return;
+    }
     if (currentMeta.targetMode === 'ratio' && rounded(macroRatioTotal()) !== 100) {
       alert('三大营养素供能比例需要合计 100%');
       return;
@@ -340,10 +261,10 @@
       alert('每餐分配需要合计 100%');
       return;
     }
-    currentMeta.targetConfigured = true;
-    writeJson(`meta_${date}`, recalculateTargets(currentMeta));
+    currentMeta = saveDayMeta(date, currentMeta);
     backHome();
   });
+
   document.getElementById('backBtn').addEventListener('click', backHome);
   window.addEventListener('load', syncForm);
   </script>

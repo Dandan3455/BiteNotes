@@ -35,165 +35,86 @@
     </section>
 
     <section class="card settings-card">
-      <p class="subhead">添加食物</p>
-      <form class="food-form" id="foodForm">
+      <div class="food-tool-head">
+        <button class="food-tab active" type="button" data-panel="search">搜索食物</button>
+        <button class="food-tab" type="button" data-panel="create">创建食物</button>
+      </div>
+
+      <div class="food-panel" id="searchPanel">
+        <input type="search" id="foodSearchInput" placeholder="搜索我的食物，例如 鸡胸肉" />
+        <p class="subhead" id="foodSuggestionTitle">最近食物</p>
+        <ul class="food-search-results" id="foodSearchResults"></ul>
+      </div>
+
+      <form class="food-form hidden" id="foodForm">
+        <p class="subhead">创建食物</p>
         <input type="text" name="food" list="foodList" placeholder="食物名称，例如 鸡胸肉" required />
         <div class="form-pair">
-          <input type="number" name="qty" placeholder="数量/份数" min="0" step="0.1" required />
-          <input type="text" name="unit" placeholder="单位：份/个/100g" />
+          <input type="number" name="qty" placeholder="数量，例如 100" min="0" step="0.1" required />
+          <select name="unit" aria-label="选择单位">
+            <option value="份">份</option>
+            <option value="克">克</option>
+            <option value="个">个</option>
+            <option value="毫升">毫升</option>
+            <option value="碗">碗</option>
+            <option value="盘">盘</option>
+            <option value="杯">杯</option>
+            <option value="勺">勺</option>
+          </select>
         </div>
         <div class="form-pair">
-          <input type="number" name="cal" placeholder="每份 kcal" min="0" step="1" required />
+          <input type="number" name="cal" placeholder="自动计算 kcal" min="0" step="1" readonly />
           <input type="number" name="protein" placeholder="蛋白质 g" min="0" step="0.1" />
         </div>
         <div class="form-pair">
           <input type="number" name="carbs" placeholder="碳水 g" min="0" step="0.1" />
           <input type="number" name="fat" placeholder="脂肪 g" min="0" step="0.1" />
         </div>
-        <button type="submit">添加食物</button>
+        <button type="submit">保存食物</button>
       </form>
     </section>
   </main>
 
   <datalist id="foodList"></datalist>
 
-  <script>
-  const FOOD_LIBRARY_KEY = 'foodLibrary';
-  const PENDING_FOOD_KEY = 'pendingFood';
-  const dayTemplates = {
-    normal: { label: '普通日', calories: 1800, ratio: { protein: 30, carbs: 40, fat: 30 } },
-    training: { label: '训练日', calories: 2000, ratio: { protein: 30, carbs: 45, fat: 25 } },
-    highCarb: { label: '高碳日', calories: 2100, ratio: { protein: 25, carbs: 55, fat: 20 } },
-    lowCarb: { label: '低碳日', calories: 1600, ratio: { protein: 35, carbs: 25, fat: 40 } },
-    rest: { label: '休息日', calories: 1700, ratio: { protein: 35, carbs: 30, fat: 35 } },
-  };
-  const defaultMealRatio = { meal1: 30, meal2: 35, meal3: 25, snack: 10 };
-  const meals = {
-    meal1: '第 1 餐',
-    meal2: '第 2 餐',
-    meal3: '第 3 餐',
-    snack: '加餐',
-  };
+  <script type="module">
+  import {
+    caloriesFromGrams,
+    getDayMeta,
+    getRecordMeal,
+    getRecords,
+    mealNames,
+    mealTarget,
+    recordTotals,
+    rounded,
+    saveRecords,
+    toNumber,
+  } from './goalService.js';
+  import { addFood, getAllFoods } from './foodLibraryService.js';
+
   const params = new URLSearchParams(window.location.search);
   const date = params.get('date') || new Date().toISOString().slice(0, 10);
-  const meal = meals[params.get('meal')] ? params.get('meal') : 'meal1';
+  const meal = mealNames[params.get('meal')] ? params.get('meal') : 'meal1';
 
-  let currentMeta = normalizeMeta(readJson(`meta_${date}`, {}));
-  let currentRecords = readJson(`records_${date}`, []);
-  let foodLibrary = readJson(FOOD_LIBRARY_KEY, []);
+  let currentMeta = getDayMeta(date);
+  let currentRecords = getRecords(date);
+  let foodLibrary = [];
+  let externalFoods = [];
+  let searchTimer = null;
+  let searchRequestId = 0;
 
   const foodRecords = document.getElementById('foodRecords');
   const foodForm = document.getElementById('foodForm');
-
-  function readJson(key, fallback) {
-    const data = localStorage.getItem(key);
-    try {
-      return data ? JSON.parse(data) : fallback;
-    } catch (error) {
-      console.error(`读取 ${key} 失败：`, error);
-      return fallback;
-    }
-  }
-
-  function writeJson(key, value) {
-    localStorage.setItem(key, JSON.stringify(value));
-  }
-
-  function toNumber(value) {
-    const number = Number(value);
-    return Number.isFinite(number) ? number : 0;
-  }
-
-  function rounded(value) {
-    return Math.round(toNumber(value));
-  }
-
-  function gramsFromRatio(calories, ratio) {
-    return {
-      protein: rounded((calories * toNumber(ratio.protein) / 100) / 4),
-      carbs: rounded((calories * toNumber(ratio.carbs) / 100) / 4),
-      fat: rounded((calories * toNumber(ratio.fat) / 100) / 9),
-    };
-  }
-
-  function caloriesFromGrams(grams) {
-    return rounded(toNumber(grams.protein) * 4 + toNumber(grams.carbs) * 4 + toNumber(grams.fat) * 9);
-  }
-
-  function defaultMeta(dayType = 'normal') {
-    const template = dayTemplates[dayType] || dayTemplates.normal;
-    return {
-      dayType,
-      targetMode: 'ratio',
-      targetCalories: template.calories,
-      macroRatio: { ...template.ratio },
-      macroGrams: gramsFromRatio(template.calories, template.ratio),
-      mealRatio: { ...defaultMealRatio },
-      targetConfigured: false,
-    };
-  }
-
-  function recalculateTargets(meta) {
-    if (meta.targetMode === 'grams') {
-      meta.targetCalories = caloriesFromGrams(meta.macroGrams);
-    } else {
-      meta.macroGrams = gramsFromRatio(toNumber(meta.targetCalories), meta.macroRatio);
-    }
-    return meta;
-  }
-
-  function normalizeMeta(meta = {}) {
-    const base = defaultMeta(meta.dayType || 'normal');
-    return recalculateTargets({
-      ...base,
-      ...meta,
-      macroRatio: { ...base.macroRatio, ...(meta.macroRatio || {}) },
-      macroGrams: { ...base.macroGrams, ...(meta.macroGrams || {}) },
-      mealRatio: { ...base.mealRatio, ...(meta.mealRatio || {}) },
-    });
-  }
-
-  function getRecordMeal(rec) {
-    const legacyMap = { '早餐': 'meal1', '午餐': 'meal2', '晚餐': 'meal3', '零食': 'snack' };
-    return rec.meal || legacyMap[rec.cat] || 'meal1';
-  }
-
-  function recordTotals(records) {
-    return records.reduce((sum, rec) => {
-      const qty = toNumber(rec.qty);
-      sum.calories += qty * toNumber(rec.cal);
-      sum.protein += qty * toNumber(rec.protein);
-      sum.carbs += qty * toNumber(rec.carbs);
-      sum.fat += qty * toNumber(rec.fat);
-      return sum;
-    }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
-  }
-
-  function targetTotals() {
-    return {
-      calories: toNumber(currentMeta.targetCalories),
-      protein: toNumber(currentMeta.macroGrams.protein),
-      carbs: toNumber(currentMeta.macroGrams.carbs),
-      fat: toNumber(currentMeta.macroGrams.fat),
-    };
-  }
-
-  function mealTarget() {
-    const ratio = toNumber(currentMeta.mealRatio[meal]) / 100;
-    const targets = targetTotals();
-    return {
-      calories: targets.calories * ratio,
-      protein: targets.protein * ratio,
-      carbs: targets.carbs * ratio,
-      fat: targets.fat * ratio,
-    };
-  }
+  const foodSearchInput = document.getElementById('foodSearchInput');
+  const foodSearchResults = document.getElementById('foodSearchResults');
+  const foodSuggestionTitle = document.getElementById('foodSuggestionTitle');
 
   function backHome() {
     window.location.href = `index.html?date=${encodeURIComponent(date)}`;
   }
 
-  function renderFoodList() {
+  async function renderFoodList() {
+    foodLibrary = await getAllFoods();
     const dataList = document.getElementById('foodList');
     dataList.innerHTML = '';
     foodLibrary.forEach(item => {
@@ -203,22 +124,248 @@
     });
   }
 
-  function render() {
-    const records = currentRecords.filter(rec => getRecordMeal(rec) === meal);
-    const totals = recordTotals(records);
-    const target = mealTarget();
+  function itemCalories(item) {
+    return item.cal ?? item.calories ?? 0;
+  }
 
-    document.getElementById('mealTitle').textContent = meals[meal];
+  function recordCalories(record) {
+    if (record.nutritionMode === 'total') return itemCalories(record);
+    return toNumber(record.qty) * itemCalories(record);
+  }
+
+  function foodAmountLabel(item) {
+    return `${toNumber(item.qty) || 1}${item.unit || '份'}`;
+  }
+
+  function foodSourceBadge(item) {
+    if (item.sourceType === 'userLibrary') return '我的食物库';
+    if (item.sourceType === 'commonFoods') return '本地食物库';
+    if (item.sourceType === 'online') return '联网搜索';
+    if (item.sourceType === 'recent') return '最近吃过';
+    return item.source || '我的食物库';
+  }
+
+  function foodSourceLabel(item) {
+    const englishName = item.externalName || (item.nameEn && item.nameEn !== item.name ? item.nameEn : '');
+    return [foodSourceBadge(item), item.sourceDetail, englishName].filter(Boolean).join(' · ');
+  }
+
+  function foodSourceOriginLabel(item) {
+    return [foodSourceBadge(item), item.sourceDetail].filter(Boolean).join(' · ');
+  }
+
+  function scaledFood(item, consumedQty) {
+    const baseQty = toNumber(item.qty) || 1;
+    const ratio = consumedQty / baseQty;
+    return {
+      id: Date.now(),
+      meal,
+      food: item.name,
+      qty: consumedQty,
+      unit: item.unit || '份',
+      cal: itemCalories(item) * ratio,
+      protein: toNumber(item.protein) * ratio,
+      carbs: toNumber(item.carbs) * ratio,
+      fat: toNumber(item.fat) * ratio,
+      nutritionMode: 'total',
+      source: item.source || '',
+      sourceType: item.sourceType || '',
+      sourceDetail: item.sourceDetail || '',
+      externalId: item.externalId || '',
+      nameEn: item.nameEn || '',
+      state: item.state || '',
+    };
+  }
+
+  function foodKey(item) {
+    return `${item.name}|${item.qty || 1}|${item.unit || '份'}`;
+  }
+
+  function foodFromRecord(record) {
+    const qty = toNumber(record.qty) || 1;
+    const isTotalRecord = record.nutritionMode === 'total';
+    return {
+      name: record.food,
+      qty,
+      unit: record.unit || '份',
+      cal: isTotalRecord ? itemCalories(record) : qty * itemCalories(record),
+      protein: isTotalRecord ? toNumber(record.protein) : qty * toNumber(record.protein),
+      carbs: isTotalRecord ? toNumber(record.carbs) : qty * toNumber(record.carbs),
+      fat: isTotalRecord ? toNumber(record.fat) : qty * toNumber(record.fat),
+      nutritionMode: 'total',
+      source: '最近吃过',
+      sourceType: 'recent',
+      sourceDetail: [record.source, record.sourceDetail].filter(Boolean).join(' · '),
+      externalId: record.externalId || '',
+      nameEn: record.nameEn || '',
+      usedAt: toNumber(record.id),
+    };
+  }
+
+  function getRecentEatenFoods() {
+    return Object.keys(localStorage)
+      .filter(key => key.startsWith('records_'))
+      .flatMap(key => {
+        try {
+          return JSON.parse(localStorage.getItem(key) || '[]');
+        } catch (error) {
+          console.error(`读取 ${key} 失败：`, error);
+          return [];
+        }
+      })
+      .filter(record => record.food)
+      .map(foodFromRecord)
+      .sort((a, b) => b.usedAt - a.usedAt);
+  }
+
+  function getLocalFoodSuggestions(query = '') {
+    const recentFoods = getRecentEatenFoods();
+    const libraryFoods = [...foodLibrary].reverse().map(item => ({
+      ...item,
+      qty: toNumber(item.qty) || 1,
+      unit: item.unit || '份',
+      source: item.source || '我的食物库',
+      sourceType: item.sourceType || 'userLibrary',
+      sourceDetail: item.sourceDetail || '手动创建',
+      nutritionMode: item.nutritionMode || 'total',
+    }));
+    const merged = [...recentFoods, ...libraryFoods];
+    const uniqueFoods = [];
+    const seen = new Set();
+
+    merged.forEach(item => {
+      const key = foodKey(item);
+      if (seen.has(key)) return;
+      seen.add(key);
+      uniqueFoods.push(item);
+    });
+
+    const normalizedQuery = query.trim().toLowerCase();
+    return normalizedQuery
+      ? uniqueFoods.filter(item => item.name.toLowerCase().includes(normalizedQuery))
+      : uniqueFoods.slice(0, 8);
+  }
+
+  function getFoodSuggestions(query = '') {
+    const localFoods = getLocalFoodSuggestions(query);
+    if (localFoods.length || !query.trim()) return localFoods;
+    return externalFoods;
+  }
+
+  function showSearchResults(items, title, emptyMessage) {
+    foodSuggestionTitle.textContent = title;
+
+    if (!items.length) {
+      foodSearchResults.innerHTML = `<li class="empty-food">${emptyMessage}</li>`;
+      return;
+    }
+
+    foodSearchResults.innerHTML = items.map((item, index) => `
+      <li>
+        <span>
+          <strong>${item.name}</strong>
+          <small>${foodSourceLabel(item)} · 每 ${foodAmountLabel(item)}</small>
+          <div class="food-macro-row">
+            <em>${rounded(itemCalories(item))} kcal</em>
+            <em>蛋白 ${rounded(item.protein)}g</em>
+            <em>碳水 ${rounded(item.carbs)}g</em>
+            <em>脂肪 ${rounded(item.fat)}g</em>
+          </div>
+        </span>
+        <label class="use-food-control">
+          <input type="number" value="${toNumber(item.qty) || 1}" min="0" step="0.1" aria-label="${item.name} 食用数量" />
+          <b>${item.unit || '份'}</b>
+          <button class="use-food-btn" type="button" data-index="${index}">记录</button>
+        </label>
+      </li>
+    `).join('');
+  }
+
+  async function fetchExternalFoods(query, requestId) {
+    try {
+      const response = await fetch(`/api/food-search?q=${encodeURIComponent(query)}`);
+      if (!response.ok) throw new Error(`food search failed: ${response.status}`);
+      const foods = await response.json();
+      if (requestId !== searchRequestId) return;
+      externalFoods = Array.isArray(foods) ? foods : [];
+      showSearchResults(
+        externalFoods,
+        '搜索结果',
+        '没有找到这个食物，可以切换到“创建食物”。'
+      );
+    } catch (error) {
+      if (requestId !== searchRequestId) return;
+      console.error('联网食物搜索失败：', error);
+      externalFoods = [];
+      showSearchResults([], '搜索结果', '没有找到这个食物，可以切换到“创建食物”。');
+    }
+  }
+
+  function updateAutoCalories() {
+    const protein = toNumber(foodForm.elements.protein.value);
+    const carbs = toNumber(foodForm.elements.carbs.value);
+    const fat = toNumber(foodForm.elements.fat.value);
+    foodForm.elements.cal.value = caloriesFromGrams({ protein, carbs, fat }) || '';
+  }
+
+  function setUnitValue(unit) {
+    const normalizedUnit = unit || '份';
+    const unitSelect = foodForm.elements.unit;
+    const hasOption = Array.from(unitSelect.options).some(option => option.value === normalizedUnit);
+
+    if (!hasOption) {
+      unitSelect.add(new Option(normalizedUnit, normalizedUnit));
+    }
+
+    unitSelect.value = normalizedUnit;
+  }
+
+  function renderSearchResults(query = '') {
+    const matches = getLocalFoodSuggestions(query);
+    const hasQuery = query.trim().length > 0;
+
+    clearTimeout(searchTimer);
+    externalFoods = [];
+    searchRequestId += 1;
+
+    if (matches.length || !hasQuery) {
+      showSearchResults(
+        matches,
+        hasQuery ? '搜索结果' : '最近食物',
+        hasQuery ? '没有找到这个食物，可以切换到“创建食物”。' : '还没有最近食物，先创建一个常吃的食物。'
+      );
+      return;
+    }
+
+    showSearchResults([], '搜索结果', '正在查找食物...');
+    const requestId = searchRequestId;
+    searchTimer = setTimeout(() => fetchExternalFoods(query, requestId), 500);
+  }
+
+  function setActivePanel(panelName) {
+    document.querySelectorAll('.food-tab').forEach(tab => {
+      tab.classList.toggle('active', tab.dataset.panel === panelName);
+    });
+    document.getElementById('searchPanel').classList.toggle('hidden', panelName !== 'search');
+    foodForm.classList.toggle('hidden', panelName !== 'create');
+  }
+
+  function render() {
+    const records = currentRecords.filter(record => getRecordMeal(record) === meal);
+    const totals = recordTotals(records);
+    const target = mealTarget(currentMeta, meal);
+
+    document.getElementById('mealTitle').textContent = mealNames[meal];
     document.getElementById('targetCalories').textContent = `${rounded(target.calories)} kcal`;
     document.getElementById('targetMacros').textContent = `P ${rounded(target.protein)}g / C ${rounded(target.carbs)}g / F ${rounded(target.fat)}g`;
     document.getElementById('eatenCalories').textContent = `${rounded(totals.calories)} kcal`;
     document.getElementById('eatenMacros').textContent = `P ${rounded(totals.protein)}g / C ${rounded(totals.carbs)}g / F ${rounded(totals.fat)}g`;
     foodRecords.innerHTML = records.length
-      ? records.map(rec => `
+      ? records.map(record => `
         <li>
-          <span>${rec.food} × ${rec.qty}${rec.unit || ''}</span>
-          <small>${rounded(toNumber(rec.qty) * toNumber(rec.cal))} kcal</small>
-          <button class="delete-food-btn" type="button" data-id="${rec.id}">删除</button>
+          <span>${record.food} × ${record.qty}${record.unit || ''}</span>
+          <small>${rounded(recordCalories(record))} kcal</small>
+          <button class="delete-food-btn" type="button" data-id="${record.id}">删除</button>
         </li>
       `).join('')
       : '<li class="empty-food">还没有添加食物</li>';
@@ -233,48 +380,102 @@
     foodForm.elements.protein.value = match.protein ?? '';
     foodForm.elements.carbs.value = match.carbs ?? '';
     foodForm.elements.fat.value = match.fat ?? '';
-    foodForm.elements.unit.value = match.unit ?? '份';
+    foodForm.elements.qty.value = match.qty ?? 1;
+    setUnitValue(match.unit);
+    updateAutoCalories();
   });
 
-  foodForm.addEventListener('submit', event => {
+  foodForm.addEventListener('input', event => {
+    if (!['protein', 'carbs', 'fat'].includes(event.target.name)) return;
+    updateAutoCalories();
+  });
+
+  foodForm.addEventListener('submit', async event => {
     event.preventDefault();
     const food = foodForm.elements.food.value.trim();
     const qty = toNumber(foodForm.elements.qty.value);
-    const cal = toNumber(foodForm.elements.cal.value);
-    const unit = foodForm.elements.unit.value.trim() || '份';
+    const unit = foodForm.elements.unit.value || '份';
     const protein = toNumber(foodForm.elements.protein.value);
     const carbs = toNumber(foodForm.elements.carbs.value);
     const fat = toNumber(foodForm.elements.fat.value);
+    const cal = caloriesFromGrams({ protein, carbs, fat });
+    foodForm.elements.cal.value = cal || '';
 
     if (!food || qty <= 0 || cal <= 0) {
-      alert('请填写食物、数量和每份热量');
+      alert('请填写食物、数量，以及蛋白质/碳水/脂肪');
       return;
     }
 
-    if (!foodLibrary.some(item => item.name === food)) {
-      const pending = readJson(PENDING_FOOD_KEY, []).filter(item => item.name !== food);
-      pending.push({ name: food, cal, protein, carbs, fat, unit });
-      writeJson(PENDING_FOOD_KEY, pending);
-      alert('新食物已提交审核，通过后将显示在下拉列表中');
+    await addFood({
+      name: food,
+      qty,
+      unit,
+      cal,
+      protein,
+      carbs,
+      fat,
+      nutritionMode: 'total',
+      source: '我的食物库',
+      sourceType: 'userLibrary',
+      sourceDetail: '手动创建',
+    });
+    await renderFoodList();
+    foodForm.reset();
+    foodSearchInput.value = food;
+    renderSearchResults(foodSearchInput.value);
+    setActivePanel('search');
+  });
+
+  foodSearchInput.addEventListener('input', () => {
+    renderSearchResults(foodSearchInput.value);
+  });
+
+  foodSearchResults.addEventListener('click', async event => {
+    const button = event.target.closest('.use-food-btn');
+    if (!button) return;
+
+    const item = getFoodSuggestions(foodSearchInput.value)[Number(button.dataset.index)];
+    if (!item) return;
+    const row = button.closest('li');
+    const consumedQty = toNumber(row.querySelector('.use-food-control input').value);
+
+    if (consumedQty <= 0) {
+      alert('请填写这次吃了多少');
+      return;
     }
 
-    currentRecords.push({ id: Date.now(), meal, food, qty, unit, cal, protein, carbs, fat });
-    writeJson(`records_${date}`, currentRecords);
-    foodForm.reset();
+    const record = scaledFood(item, consumedQty);
+    currentRecords.push(record);
+    saveRecords(date, currentRecords);
+    if (item.externalId) {
+      await addFood({
+        ...item,
+        source: '我的食物库',
+        sourceType: 'userLibrary',
+        sourceDetail: `保存自 ${foodSourceOriginLabel(item)}`,
+      });
+      await renderFoodList();
+    }
+    renderSearchResults(foodSearchInput.value);
     render();
+  });
+
+  document.querySelectorAll('.food-tab').forEach(tab => {
+    tab.addEventListener('click', () => setActivePanel(tab.dataset.panel));
   });
 
   foodRecords.addEventListener('click', event => {
     const button = event.target.closest('.delete-food-btn');
     if (!button) return;
-    currentRecords = currentRecords.filter(rec => rec.id !== Number(button.dataset.id));
-    writeJson(`records_${date}`, currentRecords);
+    currentRecords = currentRecords.filter(record => record.id !== Number(button.dataset.id));
+    saveRecords(date, currentRecords);
     render();
   });
 
   document.getElementById('backBtn').addEventListener('click', backHome);
-  window.addEventListener('load', () => {
-    renderFoodList();
+  window.addEventListener('load', async () => {
+    await renderFoodList();
+    renderSearchResults();
     render();
   });
   </script>
