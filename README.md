@@ -2,7 +2,7 @@
 
 ## Local preview
 
-This project uses a small Express server for static files and food search.
+This project uses a small Express server for static files and local food search.
 
 ```bash
 npm install
@@ -16,7 +16,13 @@ Then visit:
 http://localhost:3000/index.html
 ```
 
-`USDA_API_KEY` is optional for local testing. If it is empty, BiteNotes skips USDA and searches Open Food Facts only.
+Runtime food search currently uses the local dataset only. USDA and Open Food Facts API calls are intentionally disabled for now.
+
+## File naming notes
+
+`scripts/buildCommonFoodsFromUsda.js` is a build-time importer for locally downloaded USDA CSV files. It does not call the USDA API at runtime.
+
+`server/services/localFoodService.js` is the runtime local food search service used by `/api/food-search`.
 
 ## Build local food dataset
 

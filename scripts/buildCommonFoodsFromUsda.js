@@ -3,6 +3,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'csv-parse';
 
+// Build script only: converts locally downloaded USDA CSV files into the app's local food dataset.
+// Runtime food search lives in server.js and currently uses local data only.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
