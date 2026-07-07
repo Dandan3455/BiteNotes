@@ -24,9 +24,11 @@ Runtime food search currently uses the local dataset only. USDA and Open Food Fa
 
 `server/services/localFoodService.js` is the runtime local food search service used by `/api/food-search`.
 
-## Build local food dataset
+`server/data/commonFoods.js` is the active runtime food dataset. The old `server/data/commonFoods.json` dataset is not used and has been removed.
 
-BiteNotes can build a local `server/data/commonFoods.json` from USDA FoodData Central CSV downloads. This keeps food search local-first and reduces API calls.
+## Legacy USDA dataset builder
+
+The USDA builder is kept as an optional import tool for local experiments. It writes a JSON dataset, but that JSON output is not used by the current app unless the runtime search service is changed to read it.
 
 Download USDA FoodData Central CSV files yourself, then put the raw CSV files here:
 
@@ -66,5 +68,3 @@ Edit these keyword lists to control what goes into the generated local dataset:
 config/includeKeywords.json
 config/excludeKeywords.json
 ```
-
-Restart `npm start` after rebuilding `commonFoods.json`.
