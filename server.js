@@ -56,6 +56,12 @@ function normalizeFoodResult(food) {
     sourceType: food.sourceType || '',
     sourceDetail: food.sourceDetail || '',
     externalId: String(food.externalId || ''),
+    gi: food.gi ?? null,
+    giLevel: food.giLevel || '',
+    giSource: food.giSource || '',
+    giMatchNote: food.giMatchNote || '',
+    category: food.category || '',
+    translationNote: food.translationNote || '',
   };
 }
 
