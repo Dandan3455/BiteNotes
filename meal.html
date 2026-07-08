@@ -77,6 +77,14 @@
 
   <datalist id="foodList"></datalist>
 
+  <div class="food-detail-modal hidden" id="foodDetailModal" role="dialog" aria-modal="true" aria-labelledby="foodDetailTitle">
+    <div class="food-detail-card">
+      <button class="food-detail-close" id="foodDetailClose" type="button" aria-label="关闭详情">×</button>
+      <h2 id="foodDetailTitle">食物详情</h2>
+      <div id="foodDetailBody"></div>
+    </div>
+  </div>
+
   <script type="module">
   import {
     caloriesFromGrams,
@@ -108,6 +116,9 @@
   const foodSearchInput = document.getElementById('foodSearchInput');
   const foodSearchResults = document.getElementById('foodSearchResults');
   const foodSuggestionTitle = document.getElementById('foodSuggestionTitle');
+  const foodDetailModal = document.getElementById('foodDetailModal');
+  const foodDetailBody = document.getElementById('foodDetailBody');
+  const foodDetailClose = document.getElementById('foodDetailClose');
 
   function backHome() {
     window.location.href = `index.html?date=${encodeURIComponent(date)}`;
@@ -154,6 +165,42 @@
     return [foodSourceBadge(item), item.sourceDetail].filter(Boolean).join(' · ');
   }
 
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+    }[char]));
+  }
+
+  function detailValue(value, fallback = '待匹配') {
+    const text = String(value ?? '').trim();
+    return text ? text : fallback;
+  }
+
+  function showFoodDetail(item) {
+    document.getElementById('foodDetailTitle').textContent = item.name || '食物详情';
+    foodDetailBody.innerHTML = `
+      <dl class="food-detail-list">
+        <div><dt>中文名</dt><dd>${escapeHtml(detailValue(item.nameZh || item.name, '暂无'))}</dd></div>
+        <div><dt>英文原名</dt><dd>${escapeHtml(detailValue(item.nameEn, '暂无'))}</dd></div>
+        <div><dt>分类</dt><dd>${escapeHtml(detailValue(item.category, '暂无'))}</dd></div>
+        <div><dt>GI 值</dt><dd>${escapeHtml(detailValue(item.gi))}</dd></div>
+        <div><dt>GI 水平</dt><dd>${escapeHtml(detailValue(item.giLevel))}</dd></div>
+        <div><dt>GI 备注</dt><dd>${escapeHtml(detailValue(item.giMatchNote || item.giSource, '暂无'))}</dd></div>
+        <div><dt>翻译 notes</dt><dd>${escapeHtml(detailValue(item.translationNote, '暂无'))}</dd></div>
+        <div><dt>数据来源</dt><dd>${escapeHtml(detailValue(foodSourceLabel(item), '暂无'))}</dd></div>
+      </dl>
+    `;
+    foodDetailModal.classList.remove('hidden');
+  }
+
+  function hideFoodDetail() {
+    foodDetailModal.classList.add('hidden');
+  }
+
   function scaledFood(item, consumedQty) {
     const baseQty = toNumber(item.qty) || 1;
     const ratio = consumedQty / baseQty;
@@ -174,6 +221,12 @@
       externalId: item.externalId || '',
       nameEn: item.nameEn || '',
       state: item.state || '',
+      gi: item.gi ?? null,
+      giLevel: item.giLevel || '',
+      giSource: item.giSource || '',
+      giMatchNote: item.giMatchNote || '',
+      category: item.category || '',
+      translationNote: item.translationNote || '',
     };
   }
 
@@ -198,6 +251,12 @@
       sourceDetail: [record.source, record.sourceDetail].filter(Boolean).join(' · '),
       externalId: record.externalId || '',
       nameEn: record.nameEn || '',
+      gi: record.gi ?? null,
+      giLevel: record.giLevel || '',
+      giSource: record.giSource || '',
+      giMatchNote: record.giMatchNote || '',
+      category: record.category || '',
+      translationNote: record.translationNote || '',
       usedAt: toNumber(record.id),
     };
   }
@@ -275,6 +334,7 @@
         <label class="use-food-control">
           <input type="number" value="${toNumber(item.qty) || 1}" min="0" step="0.1" aria-label="${item.name} 食用数量" />
           <b>${item.unit || '份'}</b>
+          <button class="detail-food-btn" type="button" data-index="${index}">详情</button>
           <button class="use-food-btn" type="button" data-index="${index}">记录</button>
         </label>
       </li>
@@ -431,6 +491,13 @@
   });
 
   foodSearchResults.addEventListener('click', async event => {
+    const detailButton = event.target.closest('.detail-food-btn');
+    if (detailButton) {
+      const item = getFoodSuggestions(foodSearchInput.value)[Number(detailButton.dataset.index)];
+      if (item) showFoodDetail(item);
+      return;
+    }
+
     const button = event.target.closest('.use-food-btn');
     if (!button) return;
 
@@ -458,6 +525,11 @@
     }
     renderSearchResults(foodSearchInput.value);
     render();
+  });
+
+  foodDetailClose.addEventListener('click', hideFoodDetail);
+  foodDetailModal.addEventListener('click', event => {
+    if (event.target === foodDetailModal) hideFoodDetail();
   });
 
   document.querySelectorAll('.food-tab').forEach(tab => {
