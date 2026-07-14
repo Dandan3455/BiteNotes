@@ -72,6 +72,23 @@ test('surfaces possible mg/g OCR confusion for sodium', () => {
   assert.ok(result.warnings.some(item => item.code === 'low_field_confidence'));
 });
 
+test('shows the original and corrected values for an automatic g-to-9 correction', () => {
+  const profile = completeProfile();
+  profile.nutrients.protein_g = {
+    ...nutrient(2.4, 'g', 0.45, ['ocr_g_9_auto_corrected']),
+    ocrCorrection: {
+      type: 'unit_g_read_as_9',
+      originalValue: 249,
+      correctedValue: 2.4,
+    },
+  };
+  const result = validateNutritionProfile(profile);
+  const correction = result.warnings.find(item => item.code === 'ocr_g_9_auto_corrected');
+
+  assert.match(correction.message, /原值 249/);
+  assert.match(correction.message, /纠正为 2\.4 g/);
+});
+
 test('does not fill missing fields and marks them for review', () => {
   const profile = completeProfile();
   delete profile.nutrients.protein_g;
@@ -80,7 +97,7 @@ test('does not fill missing fields and marks them for review', () => {
   assert.equal(profile.nutrients.protein_g, undefined);
 });
 
-test('blocks a missing name but permits warnings after explicit confirmation in the UI', () => {
+test('blocks a missing name while keeping nutrition warnings non-blocking', () => {
   const profile = completeProfile();
   const result = validateScannedFood({ name: '', qty: 100, nutritionBasis: 'per_100g' }, profile);
   assert.ok(result.errors.some(item => item.code === 'missing_food_name'));

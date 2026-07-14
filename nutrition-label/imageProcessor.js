@@ -1,10 +1,45 @@
-function canvasToBlob(canvas, type = 'image/jpeg', quality = 0.92) {
+import { normalizeImageFile } from './imageFileNormalizer.js';
+
+function canvasToBlob(canvas, type = 'image/png', quality) {
   return new Promise((resolve, reject) => {
     canvas.toBlob(blob => {
       if (blob) resolve(blob);
       else reject(new Error('无法生成处理后的图片'));
     }, type, quality);
   });
+}
+
+function hasDecodedDimensions(imageElement) {
+  return imageElement.naturalWidth > 0 && imageElement.naturalHeight > 0;
+}
+
+function waitForImageLoad(imageElement) {
+  if (imageElement.complete) {
+    return hasDecodedDimensions(imageElement)
+      ? Promise.resolve()
+      : Promise.reject(new Error('Image has no decoded dimensions'));
+  }
+  return new Promise((resolve, reject) => {
+    imageElement.addEventListener('load', resolve, { once: true });
+    imageElement.addEventListener(
+      'error',
+      () => reject(new Error('Image load failed')),
+      { once: true },
+    );
+  });
+}
+
+async function decodeImageElement(imageElement) {
+  if (typeof imageElement.decode === 'function') {
+    try {
+      await imageElement.decode();
+    } catch (error) {
+      if (!hasDecodedDimensions(imageElement)) throw error;
+    }
+  } else {
+    await waitForImageLoad(imageElement);
+  }
+  if (!hasDecodedDimensions(imageElement)) throw new Error('Image has no decoded dimensions');
 }
 
 function applyContrast(canvas, contrast) {
@@ -65,25 +100,40 @@ function analyzeCanvas(canvas) {
 }
 
 export class NutritionLabelImageProcessor {
-  constructor(imageElement, CropperConstructor = globalThis.Cropper) {
+  constructor(imageElement, CropperConstructor = globalThis.Cropper, heicConverter = null) {
     this.imageElement = imageElement;
     this.CropperConstructor = CropperConstructor;
+    this.heicConverter = heicConverter;
     this.cropper = null;
     this.sourceUrl = '';
     this.rotationDegrees = 0;
   }
 
-  async load(file) {
-    if (!(file instanceof Blob) || !String(file.type).startsWith('image/')) {
-      throw new Error('请选择照片或图片文件');
-    }
+  async load(file, options = {}) {
     if (!this.CropperConstructor) throw new Error('图片裁剪组件未加载');
+
+    options.onStatus?.('正在读取图片…');
+    const normalized = await normalizeImageFile(file, {
+      heicConverter: this.heicConverter,
+      onStatus: options.onStatus,
+    });
 
     this.destroyCropper();
     this.revokeSourceUrl();
-    this.sourceUrl = URL.createObjectURL(file);
+    this.sourceUrl = URL.createObjectURL(normalized.blob);
     this.imageElement.src = this.sourceUrl;
-    await this.imageElement.decode();
+    try {
+      await decodeImageElement(this.imageElement);
+    } catch (_error) {
+      this.revokeSourceUrl();
+      this.imageElement.removeAttribute('src');
+      const label = normalized.originalFormat === 'browser-image'
+        ? '所选'
+        : normalized.originalFormat.toUpperCase();
+      throw new Error(
+        `${label} 图片无法解码。文件可能损坏或尚未完整下载，请重新选择 JPG、PNG、HEIC 或 HEIF 图片`,
+      );
+    }
     this.rotationDegrees = 0;
     this.cropper = new this.CropperConstructor(this.imageElement, {
       viewMode: 1,
@@ -98,6 +148,7 @@ export class NutritionLabelImageProcessor {
       rotatable: true,
       scalable: false,
     });
+    return normalized;
   }
 
   rotate(degrees) {
@@ -115,8 +166,8 @@ export class NutritionLabelImageProcessor {
   async createProcessedImage({ enhanceContrast = false } = {}) {
     if (!this.cropper) throw new Error('请先拍摄或选择营养标签图片');
     const canvas = this.cropper.getCroppedCanvas({
-      maxWidth: 2200,
-      maxHeight: 2200,
+      maxWidth: 3200,
+      maxHeight: 3200,
       imageSmoothingEnabled: true,
       imageSmoothingQuality: 'high',
       fillColor: '#fff',

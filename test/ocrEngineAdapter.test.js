@@ -8,7 +8,8 @@ test('configures local English, French, Simplified Chinese and Traditional Chine
   const calls = {};
   const worker = {
     async setParameters(parameters) {
-      calls.parameters = parameters;
+      calls.parameterSets ||= [];
+      calls.parameterSets.push(parameters);
     },
     async recognize(image, options, output) {
       calls.image = image;
@@ -21,7 +22,9 @@ test('configures local English, French, Simplified Chinese and Traditional Chine
     },
   };
   const tesseract = {
-    PSM: { AUTO: '3' },
+    PSM: {
+      AUTO: '3', SINGLE_BLOCK: '6', SINGLE_LINE: '7', SINGLE_WORD: '8', RAW_LINE: '13',
+    },
     async createWorker(languages, oem, options) {
       calls.languages = languages;
       calls.oem = oem;
@@ -38,6 +41,32 @@ test('configures local English, French, Simplified Chinese and Traditional Chine
   assert.equal(calls.options.rotateAuto, true);
   assert.equal(calls.output.blocks, true);
   assert.equal(result.width, 800);
+  assert.equal(calls.parameterSets.at(-1).tessedit_pageseg_mode, '3');
+
+  await adapter.recognize('image-blob', {
+    width: 800,
+    height: 600,
+    pageSegmentation: 'single_block',
+  });
+  assert.equal(calls.parameterSets.at(-1).tessedit_pageseg_mode, '6');
+
+  await adapter.recognize('numeric-cell', {
+    width: 240,
+    height: 100,
+    pageSegmentation: 'single_word',
+    characterWhitelist: '0123456789.,g',
+    rotateAuto: false,
+    includeBlocks: false,
+    rectangle: { top: 2, left: 3, width: 100, height: 40 },
+  });
+  assert.equal(calls.parameterSets.at(-1).tessedit_pageseg_mode, '8');
+  assert.equal(calls.parameterSets.at(-1).tessedit_char_whitelist, '0123456789.,g');
+  assert.equal(calls.options.rotateAuto, false);
+  assert.deepEqual(calls.options.rectangle, { top: 2, left: 3, width: 100, height: 40 });
+  assert.equal(calls.output.blocks, false);
+
+  await adapter.recognize('image-blob');
+  assert.equal(calls.parameterSets.at(-1).tessedit_char_whitelist, '');
   await adapter.terminate();
   assert.equal(calls.terminated, true);
 });

@@ -7,7 +7,9 @@ const WARNING_MESSAGES = Object.freeze({
   missing_nutrient_unit: '营养数值的单位未被清晰识别，请确认。',
   nutrition_basis_inferred: '计量基础未被清晰识别，当前暂按每份展示。',
   ocr_character_ambiguity: '发现 0/O 或 1/I/l 字符混淆，未自动改写该数值。',
+  ocr_g_9_auto_corrected: 'OCR 可能将单位 g 识别为数字 9，程序已生成纠正值，请对照标签确认。',
   possible_g_9_confusion: '数值末尾的9可能是单位 g 的 OCR 误识，程序未自动修改，请对照标签。',
+  serving_g_9_auto_corrected: '每份大小中的单位 g 可能被 OCR 识别成了 9，已生成纠正值，请对照标签确认。',
   sodium_unit_requires_confirmation: '钠的单位识别为 g 并已换算为 mg，请确认不是 mg/g 识别错误。',
   unexpected_energy_unit: '热量单位异常，请手动核对。',
   unexpected_nutrient_unit: '营养素单位异常，请手动核对。',
@@ -75,7 +77,11 @@ export function validateNutritionProfile(profile, context = {}) {
       issues.push(issue('low_field_confidence', `${NUTRITION_FIELD_DEFINITIONS[field]?.label || field}识别信心较低。`, field));
     }
     (nutrient?.warnings || []).forEach(code => {
-      issues.push(issue(code, WARNING_MESSAGES[code] || '该字段可能存在 OCR 识别问题。', field));
+      const correction = nutrient?.ocrCorrection;
+      const message = code === 'ocr_g_9_auto_corrected' && correction
+        ? `OCR 原值 ${correction.originalValue} 可能把单位 g 识别成了 9，已纠正为 ${correction.correctedValue} g，请对照标签确认。`
+        : (WARNING_MESSAGES[code] || '该字段可能存在 OCR 识别问题。');
+      issues.push(issue(code, message, field));
     });
   });
 

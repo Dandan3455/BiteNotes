@@ -178,9 +178,7 @@
   color: #444;
 }
 
-.contrast-toggle input,
-.warning-confirm input,
-.basis-option input {
+.contrast-toggle input {
   width: 18px;
   min-height: 18px;
   margin: 0;
@@ -197,6 +195,10 @@
   width: 100%;
   min-height: 44px;
   margin: 0;
+}
+
+.scan-bottom-actions.save-only {
+  grid-template-columns: 1fr;
 }
 
 #processingStage {
@@ -237,107 +239,74 @@
   object-fit: contain;
 }
 
-.scan-detection-summary {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 16px;
-}
-
-.scan-detection-summary div {
+.save-amount-fieldset {
   min-width: 0;
-  padding: 11px 12px;
-  border-radius: 7px;
-  background: #f3f4f0;
-}
-
-.scan-detection-summary span,
-.scan-detection-summary strong {
-  display: block;
-}
-
-.scan-detection-summary span {
-  color: #777;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.scan-detection-summary strong {
-  margin-top: 4px;
-  overflow-wrap: anywhere;
-  font-size: 14px;
-}
-
-.basis-fieldset {
-  margin: 0 0 16px;
+  margin: 0;
   padding: 12px;
   border: 1px solid #deded8;
   border-radius: 7px;
 }
 
-.basis-fieldset legend {
+.save-amount-fieldset legend {
   padding: 0 6px;
   color: #444;
   font-size: 13px;
   font-weight: 800;
 }
 
-.basis-options {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 8px;
-}
-
-.basis-option {
-  display: grid;
-  grid-template-columns: 18px 1fr;
-  gap: 3px 8px;
-  align-items: center;
-  min-width: 0;
-  padding: 10px;
-  border: 1px solid #dfdfda;
-  border-radius: 7px;
-  background: #fff;
-}
-
-.basis-option.active {
-  border-color: var(--blue);
-  background: var(--blue-soft);
-}
-
-.basis-option span {
-  overflow-wrap: anywhere;
-}
-
-.basis-option small {
-  grid-column: 2;
-  color: #777;
-  font-size: 11px;
-}
-
-#scanConfirmForm {
-  display: grid;
-  gap: 12px;
-}
-
-.scan-form-grid {
+.save-amount {
   display: grid;
   gap: 10px;
 }
 
-.scan-form-grid.two-columns {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.save-amount-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #ecece7;
 }
 
-.scan-form-grid label,
-.barcode-field {
+.save-amount-head span {
+  color: #444;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.save-amount-head strong {
+  color: var(--blue);
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+.amount-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.amount-controls label,
+.food-name-field {
   display: grid;
   gap: 7px;
   min-width: 0;
 }
 
-.scan-form-grid label > span b {
+.amount-controls span,
+.food-name-field span {
+  color: #444;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.food-name-field b {
   color: #b03225;
+}
+
+#scanConfirmForm {
+  display: grid;
+  gap: 12px;
 }
 
 .nutrition-fields-head {
@@ -382,20 +351,13 @@
   margin-bottom: 7px;
 }
 
-.nutrition-field label small {
-  color: #888;
-  font-size: 11px;
-  font-weight: 700;
-}
-
 .nutrition-value-control {
   display: grid;
-  grid-template-columns: 76px minmax(0, 1fr) 34px;
+  grid-template-columns: minmax(0, 1fr) 34px;
   gap: 6px;
   align-items: center;
 }
 
-.nutrition-value-control select,
 .nutrition-value-control input {
   min-width: 0;
   min-height: 38px;
@@ -407,19 +369,12 @@
   font-size: 13px;
 }
 
-.field-confidence {
+.energy-conversion {
   display: block;
-  min-height: 16px;
-  margin-top: 6px;
-  color: #777;
+  margin-top: 8px;
+  color: #626262;
   font-size: 11px;
-  line-height: 1.35;
-}
-
-.barcode-field small {
-  color: #777;
-  font-size: 12px;
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
 .validation-summary {
@@ -434,50 +389,85 @@
 
 .validation-summary strong {
   display: block;
-  margin-bottom: 7px;
+  margin: 0;
 }
 
 .validation-summary ul {
   display: grid;
   gap: 5px;
+  margin: 7px 0 0;
+  padding-left: 20px;
+}
+
+.confidence-level,
+.save-error {
+  font-weight: 800;
+}
+
+.confidence-level.high {
+  color: #277044;
+}
+
+.confidence-level.medium {
+  color: #9a6500;
+}
+
+.confidence-level.low,
+.save-error {
+  color: #a12d20;
+}
+
+.validation-summary[data-confidence="high"] {
+  border-color: #a7cdb3;
+  background: #f2f8f3;
+  color: #315d3f;
+}
+
+.validation-summary[data-confidence="low"] {
+  border-color: #e0a89e;
+  background: #fff4f2;
+  color: #7d3329;
+}
+
+.save-review-card {
+  width: min(460px, 100%);
+}
+
+.save-review-content {
+  color: #4f4f4f;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.save-review-content p {
+  margin: 0 0 10px;
+}
+
+.save-review-content ul {
+  display: grid;
+  gap: 7px;
   margin: 0;
   padding-left: 20px;
 }
 
-.validation-summary li.error {
-  color: #a12d20;
-  font-weight: 800;
+.save-review-content .auto-calorie-notice {
+  padding: 10px;
+  border-left: 3px solid #c98700;
+  background: #fff8e6;
+  color: #6b5014;
 }
 
-.warning-confirm {
+.save-review-actions {
   display: grid;
-  grid-template-columns: 20px 1fr;
-  gap: 9px;
-  align-items: start;
-  padding: 11px;
-  border: 1px solid #deded8;
-  border-radius: 7px;
-  background: #f7f7f4;
-  line-height: 1.4;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 18px;
 }
 
-.warning-confirm.attention {
-  border-color: #c98700;
-  background: #fff6dc;
-}
-
-.barcode-conflict-card p {
-  color: #555;
-  line-height: 1.5;
-}
-
-.conflict-actions {
-  display: grid;
-  gap: 8px;
-}
-
-.conflict-actions .primary-btn {
-  margin-top: 0;
+.save-review-actions button {
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
 }
 
 @media (max-width: 560px) {
@@ -489,7 +479,6 @@
 
   .capture-actions,
   .scan-bottom-actions,
-  .scan-form-grid.two-columns,
   .nutrition-fields {
     grid-template-columns: 1fr;
   }
@@ -504,10 +493,6 @@
 
   .contrast-toggle {
     font-size: 12px;
-  }
-
-  .scan-detection-summary {
-    grid-template-columns: 1fr;
   }
 }
 
@@ -526,6 +511,11 @@
   }
 
   .nutrition-value-control {
-    grid-template-columns: 70px minmax(0, 1fr) 28px;
+    grid-template-columns: minmax(0, 1fr) 28px;
+  }
+
+  .amount-controls,
+  .save-review-actions {
+    grid-template-columns: 1fr;
   }
 }

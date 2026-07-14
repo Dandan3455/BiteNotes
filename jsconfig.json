@@ -16,7 +16,11 @@
     "nutrition-label/ocrTextNormalizer.js",
     "nutrition-label/nutritionParser.js",
     "nutrition-label/nutritionValidator.js",
+    "nutrition-label/confirmationLogic.js",
+    "nutrition-label/imageFileNormalizer.js",
     "nutrition-label/imageProcessor.js",
+    "nutrition-label/numericImagePreprocessor.js",
+    "nutrition-label/numericOcrRefiner.js",
     "nutrition-label/ocrEngineAdapter.js"
   ]
 }

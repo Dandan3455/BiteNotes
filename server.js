@@ -28,6 +28,10 @@ app.use('/vendor/cropper', express.static(
   path.join(__dirname, 'node_modules', 'cropperjs', 'dist'),
   vendorOptions,
 ));
+app.use('/vendor/heic-to', express.static(
+  path.join(__dirname, 'node_modules', 'heic-to', 'dist'),
+  vendorOptions,
+));
 
 function toNumber(value) {
   const number = Number(value);

@@ -20,7 +20,7 @@ export function normalizeForMatch(value) {
     .toLocaleLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/gu, '')
-    .replace(/\s+/gu, ' ')
+    .replace(/\s+/gu, '')
     .trim();
 }
 
@@ -89,6 +89,89 @@ function normalizeLine(line, width, height, index) {
     relativeBox: relativeBox(bbox, width, height),
     words,
   };
+}
+
+function boxHeight(line) {
+  return Math.max(line.bbox.y1 - line.bbox.y0, 0);
+}
+
+function centerY(line) {
+  return (line.bbox.y0 + line.bbox.y1) / 2;
+}
+
+function sharesVisualRow(left, right) {
+  const leftHeight = boxHeight(left);
+  const rightHeight = boxHeight(right);
+  if (!leftHeight || !rightHeight) return false;
+
+  const overlap = Math.max(
+    0,
+    Math.min(left.bbox.y1, right.bbox.y1) - Math.max(left.bbox.y0, right.bbox.y0),
+  );
+  const overlapRatio = overlap / Math.max(Math.min(leftHeight, rightHeight), 1);
+  const centerDistance = Math.abs(centerY(left) - centerY(right));
+  return overlapRatio >= 0.35
+    || centerDistance <= Math.max(5, Math.min(leftHeight, rightHeight) * 0.55);
+}
+
+function mergeVisualRow(rowLines, width, height, index) {
+  const sortedLines = [...rowLines].sort((left, right) => left.bbox.x0 - right.bbox.x0);
+  const words = sortedLines.flatMap(line => (
+    line.words.length
+      ? line.words
+      : [{
+        text: line.text,
+        confidence: line.confidence,
+        bbox: line.bbox,
+        relativeBox: line.relativeBox,
+      }]
+  )).filter(word => word.text)
+    .sort((left, right) => left.bbox.x0 - right.bbox.x0);
+
+  const bbox = {
+    x0: Math.min(...sortedLines.map(line => line.bbox.x0)),
+    y0: Math.min(...sortedLines.map(line => line.bbox.y0)),
+    x1: Math.max(...sortedLines.map(line => line.bbox.x1)),
+    y1: Math.max(...sortedLines.map(line => line.bbox.y1)),
+  };
+  const confidence = sortedLines.reduce((sum, line) => sum + line.confidence, 0)
+    / Math.max(sortedLines.length, 1);
+
+  return {
+    id: `visual-row-${index}`,
+    text: normalizeCharacters(words.map(word => word.text).join(' ')),
+    confidence,
+    bbox,
+    relativeBox: relativeBox(bbox, width, height),
+    words,
+    sourceLineIds: sortedLines.map(line => line.id),
+  };
+}
+
+export function buildLogicalRows(lines = [], width = 0, height = 0) {
+  const sortedLines = lines.filter(line => line?.text)
+    .slice()
+    .sort((left, right) => left.bbox.y0 - right.bbox.y0 || left.bbox.x0 - right.bbox.x0);
+  const rowGroups = [];
+
+  sortedLines.forEach(line => {
+    const matchingGroup = rowGroups
+      .map(group => ({
+        group,
+        distance: Math.min(...group.map(item => Math.abs(centerY(item) - centerY(line)))),
+      }))
+      .filter(item => item.group.some(groupLine => sharesVisualRow(groupLine, line)))
+      .sort((left, right) => left.distance - right.distance)[0]?.group;
+
+    if (matchingGroup) matchingGroup.push(line);
+    else rowGroups.push([line]);
+  });
+
+  const effectiveWidth = width || Math.max(...sortedLines.map(line => line.bbox.x1), 1);
+  const effectiveHeight = height || Math.max(...sortedLines.map(line => line.bbox.y1), 1);
+  return rowGroups
+    .map((group, index) => mergeVisualRow(group, effectiveWidth, effectiveHeight, index))
+    .sort((left, right) => left.bbox.y0 - right.bbox.y0 || left.bbox.x0 - right.bbox.x0);
 }
 
 function textFallbackLines(text, width, height) {

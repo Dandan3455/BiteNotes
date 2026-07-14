@@ -7,13 +7,23 @@ import {
   UNIT_ALIASES,
 } from './fieldAliases.js';
 import {
+  buildLogicalRows,
   normalizeCharacters,
   normalizeForMatch,
   normalizeOcrResult,
 } from './ocrTextNormalizer.js';
 
-const VALUE_PATTERN = /([<≤]?)\s*([0-9]+(?:[.,][0-9]+)?|[oOilI])\s*(kcal|kj|千卡|大卡|千焦|mg|毫克|g|公克|克|ml|毫升|%)?/giu;
-const SERVING_VALUE_PATTERN = /([0-9]+(?:[.,][0-9]+)?)\s*(g|公克|克|mg|毫克|ml|毫升|servings?|portions?|cups?|slices?|pieces?|bags?|bottles?|份|片|个|個|杯|袋|瓶|包装|包裝)/iu;
+const VALUE_PATTERN = /([<≤]?)\s*([0-9]+(?:\s*[.,]\s*[0-9]+)?|[oOilI])\s*(k\s*cal|k\s*j|千\s*卡|大\s*卡|千\s*焦|m\s*g|毫\s*克|g|公\s*克|克|m\s*l|毫\s*升|%)?/giu;
+const SERVING_VALUE_PATTERN = /([0-9]+(?:\s*[.,]\s*[0-9]+)?)\s*(g|公\s*克|克|m\s*g|毫\s*克|m\s*l|毫\s*升|servings?|portions?|cups?|slices?|pieces?|bags?|bottles?|份|片|个|個|杯|袋|瓶|包装|包裝)/iu;
+const GRAM_NUTRIENT_FIELDS = Object.freeze([
+  'carbohydrates_g',
+  'protein_g',
+  'fat_g',
+  'fibre_g',
+  'sugars_g',
+  'saturated_fat_g',
+  'trans_fat_g',
+]);
 
 function confidenceRatio(value) {
   const number = Number(value);
@@ -26,8 +36,27 @@ function includesAlias(value, aliases) {
   return aliases.find(alias => normalized.includes(normalizeForMatch(alias))) || '';
 }
 
+function searchableLineAndSpans(line) {
+  if (!line.words?.length) {
+    return { text: normalizeForMatch(line.text), spans: [] };
+  }
+
+  let text = '';
+  const spans = [];
+  [...line.words]
+    .sort((left, right) => left.bbox.x0 - right.bbox.x0)
+    .forEach(word => {
+      const token = normalizeForMatch(word.text);
+      if (!token) return;
+      const start = text.length;
+      text += token;
+      spans.push({ start, end: text.length, bbox: word.bbox });
+    });
+  return { text, spans };
+}
+
 function matchAliasDetails(line, aliases) {
-  const text = normalizeForMatch(line.text);
+  const { text, spans } = searchableLineAndSpans(line);
   /** @type {{ alias: string, normalizedAlias: string, index: number } | null} */
   let best = null;
 
@@ -41,6 +70,14 @@ function matchAliasDetails(line, aliases) {
   }
 
   if (!best) return null;
+  const aliasEnd = best.index + best.normalizedAlias.length;
+  const overlapping = spans.filter(span => span.start < aliasEnd && span.end > best.index);
+  if (overlapping.length) {
+    const x0 = Math.min(...overlapping.map(span => span.bbox.x0));
+    const x1 = Math.max(...overlapping.map(span => span.bbox.x1));
+    return { ...best, x: (x0 + x1) / 2 };
+  }
+
   const width = Math.max(line.bbox.x1 - line.bbox.x0, 1);
   const centerRatio = (best.index + best.normalizedAlias.length / 2) / Math.max(text.length, 1);
   return {
@@ -50,9 +87,22 @@ function matchAliasDetails(line, aliases) {
 }
 
 function parseDecimal(value) {
-  const normalized = String(value).replace(',', '.');
+  const normalized = String(value).replace(/\s+/gu, '').replace(',', '.');
   const number = Number(normalized);
   return Number.isFinite(number) ? number : null;
+}
+
+function possibleGAsNineValues(rawValue) {
+  const normalized = String(rawValue).replace(/\s+/gu, '').replace(',', '.');
+  if (!/^[0-9]+(?:\.[0-9]+)?9$/u.test(normalized)) return [];
+
+  const withoutNine = normalized.slice(0, -1);
+  if (!withoutNine || withoutNine === '.') return [];
+  const values = [parseDecimal(withoutNine)];
+  if (!withoutNine.includes('.') && withoutNine.length >= 2) {
+    values.push(parseDecimal(`${withoutNine.slice(0, -1)}.${withoutNine.slice(-1)}`));
+  }
+  return [...new Set(values.filter(value => value != null))];
 }
 
 function normalizedUnit(value) {
@@ -99,6 +149,8 @@ function extractServingMetadata(lines) {
     servingsPerContainer: null,
     confidence: 0,
     sourceText: '',
+    warnings: [],
+    ocrCorrection: null,
   };
 
   for (const line of lines) {
@@ -114,7 +166,26 @@ function extractServingMetadata(lines) {
     if (!includesAlias(line.text, LABEL_STRUCTURE_ALIASES.servingSize)) continue;
     if (includesAlias(line.text, LABEL_STRUCTURE_ALIASES.servingsPerContainer)) continue;
     const match = normalizeCharacters(line.text).match(SERVING_VALUE_PATTERN);
-    if (!match) continue;
+    if (!match) {
+      const normalizedLine = normalizeCharacters(line.text);
+      const suspicious = normalizedLine.match(
+        /[（(]\s*([0-9]+(?:[.,][0-9]+)?9)\s*[)）]/u,
+      ) || normalizedLine.match(/([0-9]+(?:[.,][0-9]+)?9)\s*[)\]】]?\s*$/u);
+      const corrected = suspicious ? possibleGAsNineValues(suspicious[1])[0] : null;
+      if (corrected == null) continue;
+      result.quantity = corrected;
+      result.unit = '克';
+      result.weightG = corrected;
+      result.sourceText = line.text;
+      result.confidence = Math.min(confidenceRatio(line.confidence), 0.45);
+      result.warnings.push('serving_g_9_auto_corrected');
+      result.ocrCorrection = {
+        type: 'unit_g_read_as_9',
+        originalValue: parseDecimal(suspicious[1]),
+        correctedValue: corrected,
+      };
+      break;
+    }
 
     result.quantity = parseDecimal(match[1]);
     result.unit = mapServingUnit(match[2]);
@@ -136,11 +207,13 @@ function findBasisColumns(lines, serving) {
     const servingSizeLine = includesAlias(line.text, LABEL_STRUCTURE_ALIASES.servingSize)
       && SERVING_VALUE_PATTERN.test(normalizeCharacters(line.text));
     SERVING_VALUE_PATTERN.lastIndex = 0;
+    const percentDetails = matchAliasDetails(line, LABEL_STRUCTURE_ALIASES.percentageHeaders);
+    if (percentDetails) percentageColumns.push(percentDetails.x);
 
     Object.entries(NUTRITION_BASIS_ALIASES).forEach(([basis, aliases]) => {
       const details = matchAliasDetails(line, aliases);
       if (!details) return;
-      if (basis === 'per_serving' && servingSizeLine) return;
+      if (basis === 'per_serving' && servingSizeLine && !percentDetails) return;
       columns.push({
         basis,
         x: details.x,
@@ -149,9 +222,6 @@ function findBasisColumns(lines, serving) {
         inferred: false,
       });
     });
-
-    const percentDetails = matchAliasDetails(line, LABEL_STRUCTURE_ALIASES.percentageHeaders);
-    if (percentDetails) percentageColumns.push(percentDetails.x);
   });
 
   const unique = [];
@@ -196,17 +266,28 @@ function lineTextAndSpans(line) {
   return { text, spans };
 }
 
-function matchCenterX(line, match, spans, textLength) {
+function matchGeometry(line, match, spans, textLength) {
   const start = match.index;
   const end = start + match[0].length;
   const overlapping = spans.filter(span => span.start < end && span.end > start);
   if (overlapping.length) {
-    const x0 = Math.min(...overlapping.map(span => span.bbox.x0));
-    const x1 = Math.max(...overlapping.map(span => span.bbox.x1));
-    return (x0 + x1) / 2;
+    const bbox = {
+      x0: Math.min(...overlapping.map(span => span.bbox.x0)),
+      y0: Math.min(...overlapping.map(span => span.bbox.y0)),
+      x1: Math.max(...overlapping.map(span => span.bbox.x1)),
+      y1: Math.max(...overlapping.map(span => span.bbox.y1)),
+    };
+    return { x: (bbox.x0 + bbox.x1) / 2, bbox };
   }
   const width = Math.max(line.bbox.x1 - line.bbox.x0, 1);
-  return line.bbox.x0 + width * ((start + match[0].length / 2) / Math.max(textLength, 1));
+  const safeLength = Math.max(textLength, 1);
+  const bbox = {
+    x0: line.bbox.x0 + width * (start / safeLength),
+    y0: line.bbox.y0,
+    x1: line.bbox.x0 + width * (end / safeLength),
+    y1: line.bbox.y1,
+  };
+  return { x: (bbox.x0 + bbox.x1) / 2, bbox };
 }
 
 function extractValueCandidates(line) {
@@ -221,6 +302,7 @@ function extractValueCandidates(line) {
     const unit = normalizedUnit(match[3]);
     const after = text.slice(match.index + match[0].length, match.index + match[0].length + 3);
     const isPercentage = unit === 'percent' || /^\s*%/u.test(after);
+    const geometry = matchGeometry(line, match, spans, text.length);
     candidates.push({
       raw: match[0],
       rawValue,
@@ -229,7 +311,9 @@ function extractValueCandidates(line) {
       unit,
       rawUnit: normalizeCharacters(match[3]),
       isPercentage,
-      x: matchCenterX(line, match, spans, text.length),
+      x: geometry.x,
+      bbox: geometry.bbox,
+      lineBbox: { ...line.bbox },
       confidence: confidenceRatio(line.confidence),
       sourceText: line.text,
       warnings: ambiguousCharacter ? ['ocr_character_ambiguity'] : [],
@@ -250,6 +334,7 @@ function convertCandidate(fieldKey, candidate) {
   const warnings = [...candidate.warnings];
   let confidence = candidate.confidence;
   let value = candidate.value;
+  let ocrAlternatives = [];
 
   if (value == null) {
     return {
@@ -261,6 +346,11 @@ function convertCandidate(fieldKey, candidate) {
       confidence: Math.min(confidence, 0.35),
       sourceText: candidate.sourceText,
       warnings,
+      ocrRawValue: candidate.rawValue,
+      ocrAlternatives,
+      valueBbox: { ...candidate.bbox },
+      sourceBbox: { ...candidate.lineBbox },
+      columnX: candidate.x,
     };
   }
 
@@ -278,7 +368,8 @@ function convertCandidate(fieldKey, candidate) {
     else if (!candidate.unit) {
       warnings.push('missing_nutrient_unit');
       confidence = Math.min(confidence, 0.58);
-      if (/9$/u.test(candidate.rawValue)) {
+      ocrAlternatives = possibleGAsNineValues(candidate.rawValue);
+      if (ocrAlternatives.length) {
         warnings.push('possible_g_9_confusion');
         confidence = Math.min(confidence, 0.45);
       }
@@ -309,7 +400,131 @@ function convertCandidate(fieldKey, candidate) {
     confidence,
     sourceText: candidate.sourceText,
     warnings,
+    ocrRawValue: candidate.rawValue,
+    ocrAlternatives,
+    valueBbox: { ...candidate.bbox },
+    sourceBbox: { ...candidate.lineBbox },
+    columnX: candidate.x,
   };
+}
+
+function correctionOptions(nutrient, preferSuffixCorrection = false) {
+  if (!nutrient?.ocrAlternatives?.length || nutrient.value == null) return [];
+  const hasDecimal = /[.,]/u.test(String(nutrient.ocrRawValue));
+  const options = [{
+    value: nutrient.value,
+    corrected: false,
+    penalty: hasDecimal && preferSuffixCorrection ? 3 : 0,
+  }];
+
+  nutrient.ocrAlternatives.forEach((value, index) => {
+    if (value === nutrient.value || options.some(option => option.value === value)) return;
+    options.push({
+      value,
+      corrected: true,
+      penalty: hasDecimal && preferSuffixCorrection ? 0.15 : 0.45 + index * 0.35,
+    });
+  });
+  return options;
+}
+
+function selectedNutrientValue(group, field, choices) {
+  const selected = choices[field];
+  const value = selected ? selected.value : group.nutrients[field]?.value;
+  return Number.isFinite(Number(value)) && value != null ? Number(value) : null;
+}
+
+function correctionPlausibilityScore(group, serving, choices) {
+  let score = Object.values(choices).reduce((sum, choice) => sum + choice.penalty, 0);
+  let massLimit = null;
+  if (group.basis === 'per_100g') massLimit = 100;
+  else if (group.basis === 'per_serving' && serving.weightG) massLimit = serving.weightG;
+
+  if (massLimit) {
+    GRAM_NUTRIENT_FIELDS.forEach(field => {
+      const value = selectedNutrientValue(group, field, choices);
+      if (value != null && value > massLimit * 1.08) {
+        score += Math.min((value / massLimit - 1.08) * 35, 500);
+      }
+    });
+
+    const macroValues = ['carbohydrates_g', 'protein_g', 'fat_g']
+      .map(field => selectedNutrientValue(group, field, choices));
+    if (macroValues.every(value => value != null)) {
+      const macroTotal = macroValues.reduce((sum, value) => sum + value, 0);
+      const ratio = macroTotal / massLimit;
+      if (ratio > 1.35) score += (ratio - 1.35) * 35;
+    }
+  }
+
+  const calories = selectedNutrientValue(group, 'calories_kcal', choices);
+  const carbs = selectedNutrientValue(group, 'carbohydrates_g', choices);
+  const protein = selectedNutrientValue(group, 'protein_g', choices);
+  const fat = selectedNutrientValue(group, 'fat_g', choices);
+  if ([calories, carbs, protein, fat].every(value => value != null)) {
+    const estimatedCalories = carbs * 4 + protein * 4 + fat * 9;
+    const relativeDifference = Math.abs(estimatedCalories - calories) / Math.max(calories, 40);
+    score += Math.min(relativeDifference, 10) * 18;
+  }
+
+  return score;
+}
+
+function applyGAsNineCorrections(group, serving) {
+  const ambiguousEntries = Object.entries(group.nutrients)
+    .filter(([, nutrient]) => nutrient?.ocrAlternatives?.length);
+  if (!ambiguousEntries.length) return;
+  const preferSuffixCorrection = ambiguousEntries.length >= 2;
+  const entries = ambiguousEntries.map(([field, nutrient]) => ({
+    field,
+    nutrient,
+    options: correctionOptions(nutrient, preferSuffixCorrection),
+  }));
+
+  let bestScore = Number.POSITIVE_INFINITY;
+  let bestChoices = {};
+  let examined = 0;
+  const choices = {};
+
+  function visit(index) {
+    if (examined >= 10000) return;
+    if (index === entries.length) {
+      examined += 1;
+      const score = correctionPlausibilityScore(group, serving, choices);
+      if (score < bestScore) {
+        bestScore = score;
+        bestChoices = { ...choices };
+      }
+      return;
+    }
+
+    const entry = entries[index];
+    entry.options.forEach(option => {
+      choices[entry.field] = option;
+      visit(index + 1);
+    });
+    delete choices[entry.field];
+  }
+
+  visit(0);
+  entries.forEach(({ field, nutrient }) => {
+    const selected = bestChoices[field];
+    if (!selected?.corrected) return;
+    const originalValue = nutrient.value;
+    nutrient.value = selected.value;
+    nutrient.confidence = Math.min(Number(nutrient.confidence) || 0, 0.45);
+    nutrient.warnings = [
+      ...new Set([
+        ...nutrient.warnings.filter(code => code !== 'possible_g_9_confusion'),
+        'ocr_g_9_auto_corrected',
+      ]),
+    ];
+    nutrient.ocrCorrection = {
+      type: 'unit_g_read_as_9',
+      originalValue,
+      correctedValue: selected.value,
+    };
+  });
 }
 
 function chooseColumn(candidate, columns, percentageColumns) {
@@ -338,6 +553,7 @@ function createGroups(columns) {
     confidence: column.confidence,
     inferred: column.inferred,
     sourceHeader: column.sourceText,
+    columnX: column.x,
     nutrients: {},
     originalEnergyValues: [],
     warnings: column.inferred ? ['nutrition_basis_inferred'] : [],
@@ -413,11 +629,16 @@ function derivePer100gGroup(groups, serving) {
 
 export function parseNutritionLabel(input) {
   const ocr = normalizeOcrResult(input);
-  const serving = extractServingMetadata(ocr.lines);
-  const { columns, percentageColumns } = findBasisColumns(ocr.lines, serving);
+  const logicalRows = buildLogicalRows(ocr.lines, ocr.width, ocr.height);
+  const analysisLines = logicalRows.length ? logicalRows : ocr.lines;
+  const serving = extractServingMetadata(analysisLines);
+  const { columns, percentageColumns } = findBasisColumns(analysisLines, serving);
   const groups = createGroups(columns);
+  if (serving.ocrCorrection) {
+    groups.forEach(group => group.warnings.push('serving_g_9_auto_corrected'));
+  }
 
-  ocr.lines.forEach(line => {
+  analysisLines.forEach(line => {
     const fieldMatch = SORTED_FIELD_ENTRIES.find(([, definition]) => includesAlias(line.text, definition.aliases));
     if (!fieldMatch) return;
     const [fieldKey] = fieldMatch;
@@ -434,6 +655,7 @@ export function parseNutritionLabel(input) {
     });
   });
 
+  groups.forEach(group => applyGAsNineCorrections(group, serving));
   const derived = derivePer100gGroup(groups, serving);
   if (derived) groups.push(derived);
 
@@ -446,13 +668,13 @@ export function parseNutritionLabel(input) {
   });
 
   return {
-    foodName: extractExplicitText(ocr.lines, LABEL_STRUCTURE_ALIASES.foodName),
-    brand: extractExplicitText(ocr.lines, LABEL_STRUCTURE_ALIASES.brand),
+    foodName: extractExplicitText(analysisLines, LABEL_STRUCTURE_ALIASES.foodName),
+    brand: extractExplicitText(analysisLines, LABEL_STRUCTURE_ALIASES.brand),
     detectedLanguages: ocr.detectedLanguages,
     ocrConfidence: confidenceRatio(ocr.confidence),
     serving,
     groups,
     ignoredPercentageColumns: percentageColumns.length,
-    ocr,
+    ocr: { ...ocr, logicalRows },
   };
 }

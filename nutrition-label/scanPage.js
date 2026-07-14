@@ -1,13 +1,17 @@
+import { saveScannedFood } from '../foodLibraryService.js';
 import {
-  BarcodeConflictError,
-  findFoodByBarcode,
-  saveScannedFood,
-} from '../foodLibraryService.js';
-import { BASIS_LABELS, NUTRITION_FIELD_DEFINITIONS } from './fieldAliases.js';
+  amountScaleFactor,
+  defaultSaveAmount,
+  prepareSaveReview,
+  scaleNutritionValue,
+} from './confirmationLogic.js';
 import {
-  NutritionLabelImageProcessor,
-  detectBarcodeFromImage,
-} from './imageProcessor.js';
+  BASIS_LABELS,
+  CORE_NUTRITION_FIELDS,
+  NUTRITION_FIELD_DEFINITIONS,
+} from './fieldAliases.js';
+import { NutritionLabelImageProcessor } from './imageProcessor.js';
+import { refineNutritionValues } from './numericOcrRefiner.js';
 import { LocalOcrEngineAdapter } from './ocrEngineAdapter.js';
 import { deriveNutrientsPer100g, parseNutritionLabel } from './nutritionParser.js';
 import {
@@ -16,22 +20,39 @@ import {
 } from './nutritionValidator.js';
 
 const FIELD_CONTROLS = Object.freeze([
-  ['calories_kcal', '热量', 'kcal', false],
-  ['carbohydrates_g', '碳水化合物', 'g', false],
-  ['protein_g', '蛋白质', 'g', false],
-  ['fat_g', '脂肪', 'g', false],
-  ['fibre_g', '膳食纤维', 'g', true],
-  ['sugars_g', '糖', 'g', true],
-  ['saturated_fat_g', '饱和脂肪', 'g', true],
-  ['trans_fat_g', '反式脂肪', 'g', true],
-  ['sodium_mg', '钠', 'mg', true],
+  ['calories_kcal', '热量', 'kcal', 1],
+  ['carbohydrates_g', '碳水化合物', 'g', 0.1],
+  ['protein_g', '蛋白质', 'g', 0.1],
+  ['fat_g', '脂肪', 'g', 0.1],
 ]);
 
-const LANGUAGE_LABELS = Object.freeze({
-  en: '英文',
-  fr: '法文',
-  'zh-Hans': '简体中文',
-  'zh-Hant': '繁体中文',
+const SAVE_UNIT_ALIASES = Object.freeze({
+  g: 'g',
+  克: 'g',
+  公克: 'g',
+  kg: 'kg',
+  千克: 'kg',
+  公斤: 'kg',
+  mg: 'mg',
+  毫克: 'mg',
+  ml: 'mL',
+  毫升: 'mL',
+  l: 'L',
+  升: 'L',
+  公升: 'L',
+  包装: '包',
+  包裝: '包',
+});
+
+const SAVE_UNIT_VALUES = new Set([
+  'g', 'kg', 'mg', 'mL', 'L',
+  '份', '个', '片', '袋', '包', '盒', '瓶', '罐', '杯', '勺', '碗', '盘',
+]);
+
+const CONFIDENCE_LABELS = Object.freeze({
+  high: '高',
+  medium: '中',
+  low: '低',
 });
 
 const PROGRESS_LABELS = Object.freeze({
@@ -64,18 +85,15 @@ const elements = {
   progressText: document.getElementById('ocrProgressText'),
   previewFigure: document.getElementById('labelPreviewFigure'),
   preview: document.getElementById('labelPreview'),
-  detectedLanguages: document.getElementById('detectedLanguages'),
-  ocrConfidence: document.getElementById('ocrConfidence'),
-  basisFieldset: document.getElementById('basisFieldset'),
-  basisOptions: document.getElementById('basisOptions'),
+  amountPreview: document.getElementById('saveAmountPreview'),
   form: document.getElementById('scanConfirmForm'),
   nutritionFields: document.getElementById('nutritionFields'),
   validationSummary: document.getElementById('validationSummary'),
-  warningConfirmLabel: document.getElementById('warningConfirmLabel'),
-  barcodeStatus: document.getElementById('barcodeStatus'),
   saveButton: document.getElementById('saveScannedFoodBtn'),
-  conflictModal: document.getElementById('barcodeConflictModal'),
-  conflictDescription: document.getElementById('barcodeConflictDescription'),
+  saveReviewModal: document.getElementById('saveReviewModal'),
+  saveReviewContent: document.getElementById('saveReviewContent'),
+  returnToReview: document.getElementById('returnToReviewBtn'),
+  continueSave: document.getElementById('continueSaveBtn'),
 };
 
 const imageProcessor = new NutritionLabelImageProcessor(elements.cropImage);
@@ -86,10 +104,9 @@ const state = {
   processedImage: null,
   previewUrl: '',
   imageWarnings: [],
-  pendingItem: null,
-  existingFood: null,
-  conflictMode: '',
-  updateExistingOnSave: false,
+  saveAmounts: {},
+  pendingSaveItem: null,
+  reviewFocusKey: '',
   ocrRunId: 0,
   saving: false,
 };
@@ -119,21 +136,16 @@ function setStage(stage) {
 }
 
 function renderFieldControls() {
-  elements.nutritionFields.innerHTML = FIELD_CONTROLS.map(([key, label, unit, optional]) => `
+  elements.nutritionFields.innerHTML = FIELD_CONTROLS.map(([key, label, unit, step]) => `
     <div class="nutrition-field" data-nutrition-field="${key}">
       <label for="nutrition-${key}">
-        <span>${label}${optional ? '<small>可选</small>' : ''}</span>
+        <span>${label}</span>
       </label>
       <div class="nutrition-value-control">
-        <select data-qualifier-for="${key}" aria-label="${label}数值限定符">
-          <option value="">等于</option>
-          <option value="<">小于</option>
-          <option value="≤">不超过</option>
-        </select>
-        <input id="nutrition-${key}" data-value-for="${key}" type="number" min="0" step="0.001" inputmode="decimal" />
+        <input id="nutrition-${key}" data-value-for="${key}" type="number" min="0" step="${step}" inputmode="decimal" />
         <b>${unit}</b>
       </div>
-      <small class="field-confidence" data-confidence-for="${key}">未识别</small>
+      ${key === 'calories_kcal' ? '<small class="energy-conversion hidden" id="energyConversion"></small>' : ''}
     </div>
   `).join('');
 }
@@ -185,8 +197,14 @@ async function handleSelectedFile(input) {
   if (!file) return;
   try {
     setStatus(elements.captureStatus);
-    await imageProcessor.load(file);
-    setStatus(elements.editStatus);
+    const loaded = await imageProcessor.load(file, {
+      onStatus: message => setStatus(elements.captureStatus, message),
+    });
+    setStatus(elements.captureStatus);
+    setStatus(
+      elements.editStatus,
+      loaded.converted ? 'HEIC/HEIF 已在当前设备转换为临时 JPEG，可继续裁剪和识别。' : '',
+    );
     setStage('edit');
   } catch (error) {
     setStatus(elements.captureStatus, error.message || '无法读取该图片。', 'error');
@@ -208,6 +226,36 @@ function updateOcrProgress(message) {
   elements.progress.value = progress;
   const label = PROGRESS_LABELS[message.status] || message.status || '本地 OCR 处理中';
   elements.progressText.textContent = `${label}… ${Math.round(progress * 100)}%`;
+}
+
+function updateTableRetryProgress(message) {
+  const progress = Math.max(0, Math.min(Number(message.progress) || 0, 1));
+  elements.progress.value = progress;
+  elements.progressText.textContent = `正在使用表格模式重新识别… ${Math.round(progress * 100)}%`;
+}
+
+function updateNumericRefinementProgress({ completed, total, label }) {
+  const progress = total > 0 ? completed / total : 1;
+  elements.progress.value = progress;
+  elements.progressText.textContent = `正在精修${label}数值… ${completed}/${total}`;
+}
+
+function nutritionRecognitionQuality(parsed) {
+  return (parsed?.groups || [])
+    .filter(group => !group.derived)
+    .reduce((best, group) => {
+      const recognizedEntries = Object.entries(group.nutrients || {})
+        .filter(([, nutrient]) => (
+          nutrient?.value != null && Number.isFinite(Number(nutrient.value))
+        ));
+      const recognizedKeys = new Set(recognizedEntries.map(([key]) => key));
+      const coreCount = CORE_NUTRITION_FIELDS
+        .filter(key => recognizedKeys.has(key)).length;
+      const score = coreCount * 100
+        + recognizedEntries.length * 10
+        + (Number(group.confidence) || 0);
+      return score > best.score ? { score, coreCount } : best;
+    }, { score: 0, coreCount: 0 });
 }
 
 function manualParsedResult() {
@@ -250,25 +298,52 @@ async function recognizeLabel() {
 
   try {
     const processed = await prepareProcessedImage();
-    const barcodePromise = detectBarcodeFromImage(processed.blob).catch(() => ({ supported: true, value: '' }));
     const ocrData = await ocrEngine.recognize(processed.blob, {
       onProgress: updateOcrProgress,
       width: processed.width,
       height: processed.height,
     });
-    const barcodeResult = await barcodePromise;
-    if (runId !== state.ocrRunId) return;
+    let parsed = parseNutritionLabel(ocrData);
+    let quality = nutritionRecognitionQuality(parsed);
 
-    state.parsed = parseNutritionLabel(ocrData);
-    state.selectedGroupId = state.parsed.groups[0]?.id || '';
-    renderConfirmation({ barcodeResult });
-    setStage('confirm');
-    if (barcodeResult.value) {
-      const existing = await findFoodByBarcode(barcodeResult.value);
-      if (existing && runId === state.ocrRunId) {
-        showBarcodeConflict(existing, null, { mode: 'detected' });
+    if (quality.coreCount < 3 && runId === state.ocrRunId) {
+      elements.progress.value = 0;
+      elements.progressText.textContent = '字段较少，正在尝试表格模式重新识别…';
+      const tableOcrData = await ocrEngine.recognize(processed.blob, {
+        onProgress: updateTableRetryProgress,
+        width: processed.width,
+        height: processed.height,
+        pageSegmentation: 'single_block',
+      });
+      const tableParsed = parseNutritionLabel(tableOcrData);
+      const tableQuality = nutritionRecognitionQuality(tableParsed);
+      if (tableQuality.score > quality.score) {
+        parsed = tableParsed;
+        quality = tableQuality;
       }
     }
+
+    if (runId !== state.ocrRunId) return;
+
+    elements.progress.value = 0;
+    elements.progressText.textContent = '正在逐项精修营养数值…';
+    try {
+      parsed = await refineNutritionValues({
+        image: processed.blob,
+        parsed,
+        ocrEngine,
+        onProgress: updateNumericRefinementProgress,
+      });
+    } catch (error) {
+      console.warn('数值精修阶段未完成，将保留整表识别结果：', error);
+    }
+
+    if (runId !== state.ocrRunId) return;
+
+    state.parsed = parsed;
+    state.selectedGroupId = state.parsed.groups[0]?.id || '';
+    renderConfirmation();
+    setStage('confirm');
   } catch (error) {
     if (runId !== state.ocrRunId) return;
     console.error('营养标签识别失败：', error);
@@ -304,10 +379,6 @@ function fieldInput(key) {
   return elements.nutritionFields.querySelector(`[data-value-for="${key}"]`);
 }
 
-function qualifierInput(key) {
-  return elements.nutritionFields.querySelector(`[data-qualifier-for="${key}"]`);
-}
-
 function syncFormToCurrentGroup() {
   const group = currentGroup();
   if (!group) return null;
@@ -318,16 +389,14 @@ function syncFormToCurrentGroup() {
       ...(existing || {}),
       value,
       unit,
-      qualifier: qualifierInput(key).value,
+      qualifier: '',
       confidence: existing?.confidence ?? (value == null ? 0 : 1),
       warnings: existing?.warnings || [],
     };
   });
-  group.basis = elements.form.elements.nutrition_basis.value;
-  group.label = BASIS_LABELS[group.basis];
   if (group.basis === 'per_serving') {
     const derived = state.parsed.groups.find(item => item.derived && item.derivedFrom === 'per_serving');
-    const servingWeightG = servingWeightFromForm();
+    const servingWeightG = parsedServingWeightG();
     if (derived && servingWeightG) {
       derived.nutrients = deriveNutrientsPer100g(group.nutrients, servingWeightG);
     }
@@ -335,155 +404,313 @@ function syncFormToCurrentGroup() {
   return group;
 }
 
+function formatNutritionNumber(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '';
+  return String(Math.round(number * 100) / 100);
+}
+
+function normalizeSaveUnit(value) {
+  const raw = String(value || '').trim();
+  const alias = SAVE_UNIT_ALIASES[raw.toLocaleLowerCase()];
+  if (alias) return alias;
+  return SAVE_UNIT_VALUES.has(raw) ? raw : '份';
+}
+
+function saveAmountFromForm() {
+  return {
+    quantity: numberOrNull(elements.form.elements.amount_quantity.value),
+    unit: elements.form.elements.amount_unit.value.trim(),
+  };
+}
+
+function saveAmountForGroup(group) {
+  return state.saveAmounts[group.id]
+    || defaultSaveAmount(group.basis, state.parsed.serving);
+}
+
+function updateSaveAmountPreview() {
+  const amount = saveAmountFromForm();
+  elements.amountPreview.textContent = amount.quantity != null && amount.unit
+    ? `${formatNutritionNumber(amount.quantity)}${amount.unit}`
+    : '请填写单位和数量';
+}
+
+function renderSaveAmount(group) {
+  const currentAmount = saveAmountForGroup(group);
+  const amount = {
+    ...currentAmount,
+    unit: normalizeSaveUnit(currentAmount.unit),
+  };
+  state.saveAmounts[group.id] = amount;
+  elements.form.elements.amount_unit.value = amount.unit;
+  elements.form.elements.amount_quantity.value = amount.quantity;
+  updateSaveAmountPreview();
+}
+
+function weightInGrams(quantity, unit) {
+  const amount = numberOrNull(quantity);
+  const normalizedUnit = String(unit || '').trim().toLocaleLowerCase();
+  if (amount == null || amount <= 0) return null;
+  if (['g', '克', '公克'].includes(normalizedUnit)) return amount;
+  if (['mg', '毫克'].includes(normalizedUnit)) return amount / 1000;
+  if (['kg', '千克', '公斤'].includes(normalizedUnit)) return amount * 1000;
+  return null;
+}
+
+function syncSaveAmount() {
+  const group = currentGroup();
+  const amount = saveAmountFromForm();
+  state.saveAmounts[group.id] = amount;
+  if (group.basis === 'per_serving' && !group.derived) {
+    const servingChanged = Number(state.parsed.serving.quantity) !== Number(amount.quantity)
+      || String(state.parsed.serving.unit || '').trim() !== amount.unit;
+    state.parsed.serving.quantity = amount.quantity;
+    state.parsed.serving.unit = amount.unit;
+    const directWeightG = weightInGrams(amount.quantity, amount.unit);
+    if (directWeightG != null || servingChanged) state.parsed.serving.weightG = directWeightG;
+  }
+  return amount;
+}
+
+function currentAmountScaleFactor() {
+  const group = currentGroup();
+  const amount = saveAmountFromForm();
+  return amountScaleFactor({
+    basis: group.basis,
+    amountQuantity: amount.quantity,
+    amountUnit: amount.unit,
+    servingQuantity: state.parsed.serving.quantity,
+    servingUnit: state.parsed.serving.unit,
+  }) ?? 1;
+}
+
+function validateSaveAmount() {
+  const quantityInput = elements.form.elements.amount_quantity;
+  const amount = saveAmountFromForm();
+  const hasPositiveQuantity = amount.quantity != null && amount.quantity > 0;
+  quantityInput.setCustomValidity(hasPositiveQuantity ? '' : '请输入大于 0 的数量。');
+  return hasPositiveQuantity && amount.unit ? currentAmountScaleFactor() : null;
+}
+
+function reportFormValidityIgnoringStepMismatch() {
+  const steppedInputs = [...elements.form.querySelectorAll('input[type="number"][step]')];
+  const steps = steppedInputs.map(input => input.step);
+  steppedInputs.forEach(input => { input.step = 'any'; });
+  const valid = elements.form.reportValidity();
+  steppedInputs.forEach((input, index) => { input.step = steps[index]; });
+  return valid;
+}
+
+function renderEnergyConversion(group) {
+  const conversion = document.getElementById('energyConversion');
+  const calorieNutrient = group.nutrients.calories_kcal;
+  if (calorieNutrient?.calculation?.type === 'macro_4_4_9') {
+    const { carbohydrates_g: carbs, protein_g: protein, fat_g: fat } = calorieNutrient.calculation.inputs;
+    conversion.textContent = `${formatNutritionNumber(carbs)} × 4 + ${formatNutritionNumber(protein)} × 4 + ${formatNutritionNumber(fat)} × 9 = ${formatNutritionNumber(calorieNutrient.value)} kcal（自动计算，非识别结果）`;
+    conversion.classList.remove('hidden');
+    return;
+  }
+
+  const kilojoules = (group.originalEnergyValues || []).find(item => (
+    String(item.unit || '').toLocaleLowerCase().includes('kj') || item.unit === '千焦'
+  ));
+  const calories = calorieNutrient?.value;
+
+  if (!kilojoules || calories == null) {
+    conversion.textContent = '';
+    conversion.classList.add('hidden');
+    return;
+  }
+
+  const convertedPerOriginalBasis = Number(kilojoules.value) / 4.184;
+  let message = `${formatNutritionNumber(kilojoules.value)} kJ ÷ 4.184 = ${formatNutritionNumber(convertedPerOriginalBasis)} kcal`;
+  const servingWeightG = parsedServingWeightG();
+  if (group.derived && group.basis === 'per_100g' && servingWeightG) {
+    message += `；再按每份 ${formatNutritionNumber(servingWeightG)} g 换算为 ${formatNutritionNumber(calories)} kcal/100克`;
+  }
+  conversion.textContent = message;
+  conversion.classList.remove('hidden');
+}
+
 function fillFieldsFromGroup(group) {
   FIELD_CONTROLS.forEach(([key]) => {
     const nutrient = group.nutrients[key];
     fieldInput(key).value = nutrient?.value ?? '';
-    qualifierInput(key).value = nutrient?.qualifier || '';
     const wrapper = elements.nutritionFields.querySelector(`[data-nutrition-field="${key}"]`);
-    const confidence = wrapper.querySelector(`[data-confidence-for="${key}"]`);
     const missing = nutrient?.value == null;
     const lowConfidence = !missing && Number(nutrient.confidence) < 0.65;
     wrapper.classList.toggle('needs-review', missing || lowConfidence || Boolean(nutrient?.warnings?.length));
-    confidence.textContent = missing
-      ? '未识别'
-      : `识别信心 ${Math.round((Number(nutrient.confidence) || 0) * 100)}%${lowConfidence ? ' · 请检查' : ''}`;
   });
-
-  elements.form.elements.nutrition_basis.value = group.basis;
-  const energy = group.originalEnergyValues.find(item => /kcal|千卡|大卡/iu.test(String(item.unit)))
-    || group.originalEnergyValues[0];
-  elements.form.elements.original_energy_value.value = energy?.value ?? '';
-  const energyUnit = String(energy?.unit || '').toLocaleLowerCase().includes('kj') || energy?.unit === '千焦'
-    ? 'kJ'
-    : (energy ? 'kcal' : '');
-  elements.form.elements.original_energy_unit.value = energyUnit;
+  renderEnergyConversion(group);
 }
 
-function renderBasisOptions() {
-  const groups = state.parsed.groups;
-  elements.basisFieldset.classList.toggle('hidden', groups.length <= 1);
-  elements.basisOptions.innerHTML = groups.map(group => `
-    <label class="basis-option${group.id === state.selectedGroupId ? ' active' : ''}">
-      <input type="radio" name="detected_basis_group" value="${group.id}" ${group.id === state.selectedGroupId ? 'checked' : ''} />
-      <span>${group.label}</span>
-      <small>${group.derived ? '换算数据' : `识别信心 ${Math.round(group.confidence * 100)}%`}</small>
-    </label>
-  `).join('');
-}
-
-function renderConfirmation({ barcodeResult } = {}) {
+function renderConfirmation() {
   const parsed = state.parsed;
-  const languages = parsed.detectedLanguages.map(language => LANGUAGE_LABELS[language] || language);
-  elements.detectedLanguages.textContent = languages.length ? languages.join('、') : '未识别';
-  elements.ocrConfidence.textContent = parsed.ocrConfidence == null
-    ? '手动填写'
-    : `${Math.round(parsed.ocrConfidence * 100)}%`;
   elements.form.reset();
+  state.saveAmounts = {};
   elements.form.elements.food_name.value = parsed.foodName || '';
-  elements.form.elements.brand.value = parsed.brand || '';
-  elements.form.elements.serving_quantity.value = parsed.serving.quantity ?? '';
-  elements.form.elements.serving_unit.value = parsed.serving.unit || '';
-  elements.form.elements.servings_per_container.value = parsed.serving.servingsPerContainer ?? '';
-  if (barcodeResult?.value) {
-    elements.form.elements.barcode.value = barcodeResult.value;
-    elements.barcodeStatus.textContent = '已从图片检测到条形码，请确认。';
-  } else if (barcodeResult?.supported === false) {
-    elements.barcodeStatus.textContent = '当前浏览器不支持本地条形码识别，可手动输入。';
-  } else {
-    elements.barcodeStatus.textContent = '未从图片检测到条形码，可手动输入。';
-  }
-  renderBasisOptions();
+  renderSaveAmount(currentGroup());
   fillFieldsFromGroup(currentGroup());
   renderValidation();
-  document.getElementById('retryOcrBtn').classList.toggle('hidden', !state.processedImage);
-}
-
-function basisAmount(basis) {
-  if (basis === 'per_100g') return { qty: 100, unit: '克' };
-  if (basis === 'per_100ml') return { qty: 100, unit: '毫升' };
-  if (basis === 'per_package') return { qty: 1, unit: '包装' };
-  return {
-    qty: numberOrNull(elements.form.elements.serving_quantity.value) || 1,
-    unit: elements.form.elements.serving_unit.value.trim() || '份',
-  };
 }
 
 function simpleNutritionProfile(group) {
-  return {
-    basis: group.basis,
-    derived: group.derived,
-    derivedFrom: group.derivedFrom || '',
-    nutrients: Object.fromEntries(Object.entries(group.nutrients).map(([key, nutrient]) => [key, {
+  const nutrients = Object.fromEntries(FIELD_CONTROLS
+    .map(([key]) => [key, group.nutrients[key]])
+    .filter(([, nutrient]) => nutrient)
+    .map(([key, nutrient]) => [key, {
       value: nutrient.value,
       unit: nutrient.unit,
       qualifier: nutrient.qualifier || '',
       labelOriginalValue: nutrient.originalValue ?? null,
       labelOriginalUnit: nutrient.originalUnit || '',
-    }])),
+      ocrCorrection: nutrient.ocrCorrection ? { ...nutrient.ocrCorrection } : null,
+      numericRefinement: nutrient.numericRefinement
+        ? structuredClone(nutrient.numericRefinement)
+        : null,
+      calculation: nutrient.calculation ? { ...nutrient.calculation } : null,
+    }]));
+  return {
+    basis: group.basis,
+    derived: group.derived,
+    derivedFrom: group.derivedFrom || '',
+    nutrients,
   };
 }
 
-function servingWeightFromForm() {
-  const quantity = numberOrNull(elements.form.elements.serving_quantity.value);
-  const unit = elements.form.elements.serving_unit.value.trim().toLocaleLowerCase();
-  if (!quantity || quantity <= 0) return null;
-  if (['g', '克', '公克'].includes(unit)) return quantity;
-  if (['mg', '毫克'].includes(unit)) return quantity / 1000;
-  return null;
+function coreValidationProfile(group) {
+  return {
+    ...group,
+    nutrients: Object.fromEntries(FIELD_CONTROLS
+      .map(([key]) => [key, group.nutrients[key]])
+      .filter(([, nutrient]) => nutrient)),
+  };
+}
+
+function originalEnergy(group) {
+  const values = group.originalEnergyValues || [];
+  const energy = values.find(item => /kcal|千卡|大卡/iu.test(String(item.unit))) || values[0];
+  if (!energy) return { value: null, unit: '' };
+  const isKilojoule = String(energy.unit || '').toLocaleLowerCase().includes('kj')
+    || energy.unit === '千焦';
+  return { value: numberOrNull(energy.value), unit: isKilojoule ? 'kJ' : 'kcal' };
+}
+
+function parsedServingWeightG() {
+  return weightInGrams(state.parsed.serving.quantity, state.parsed.serving.unit)
+    || numberOrNull(state.parsed.serving.weightG);
+}
+
+function refreshDerivedServingGroup() {
+  const groups = state.parsed.groups;
+  const source = groups.find(group => group.basis === 'per_serving' && !group.derived);
+  const derivedIndex = groups.findIndex(group => group.derived && group.derivedFrom === 'per_serving');
+  const servingWeightG = parsedServingWeightG();
+
+  if (!source || !servingWeightG) {
+    if (derivedIndex < 0) return false;
+    const removedId = groups[derivedIndex].id;
+    groups.splice(derivedIndex, 1);
+    if (state.selectedGroupId === removedId) state.selectedGroupId = source?.id || groups[0]?.id || '';
+    return true;
+  }
+
+  const nutrients = deriveNutrientsPer100g(source.nutrients, servingWeightG);
+  if (derivedIndex >= 0) {
+    groups[derivedIndex] = {
+      ...groups[derivedIndex],
+      confidence: Math.max((Number(source.confidence) || 0) - 0.05, 0),
+      nutrients,
+      originalEnergyValues: [...(source.originalEnergyValues || [])],
+    };
+    return false;
+  }
+
+  if (groups.some(group => group.basis === 'per_100g')) return false;
+  groups.push({
+    id: 'per_100g-derived',
+    basis: 'per_100g',
+    recognizedBasis: 'per_serving',
+    label: `${BASIS_LABELS.per_100g}（根据份量换算）`,
+    confidence: Math.max((Number(source.confidence) || 0) - 0.05, 0),
+    inferred: false,
+    sourceHeader: state.parsed.serving.sourceText || '',
+    nutrients,
+    originalEnergyValues: [...(source.originalEnergyValues || [])],
+    warnings: ['calculated_from_serving_weight'],
+    derived: true,
+    derivedFrom: 'per_serving',
+  });
+  return true;
 }
 
 function buildFoodItem() {
   const group = syncFormToCurrentGroup();
-  const basis = elements.form.elements.nutrition_basis.value;
-  const amount = basisAmount(basis);
+  const basis = group.basis;
+  const amount = syncSaveAmount();
+  const scaleFactor = currentAmountScaleFactor() ?? 1;
   const nutrients = group.nutrients;
-  const originalEnergyValue = numberOrNull(elements.form.elements.original_energy_value.value);
-  const originalEnergyUnit = elements.form.elements.original_energy_unit.value;
-  const servingWeightG = servingWeightFromForm();
+  const energy = originalEnergy(group);
+  const servingWeightG = weightInGrams(amount.quantity, amount.unit);
+  const scaledValue = key => scaleNutritionValue(nutrients[key]?.value, scaleFactor);
+  const parsedServingWeight = parsedServingWeightG();
   const existingDerived = state.parsed.groups.find(item => item.derived && item.basis === 'per_100g');
-  const confirmedDerived = basis === 'per_serving' && servingWeightG
+  const confirmedDerived = basis === 'per_serving' && parsedServingWeight
     ? {
       ...group,
       basis: 'per_100g',
       derived: true,
       derivedFrom: 'per_serving',
-      nutrients: deriveNutrientsPer100g(group.nutrients, servingWeightG),
+      nutrients: deriveNutrientsPer100g(group.nutrients, parsedServingWeight),
     }
     : (group.derived ? group : existingDerived);
 
   return {
     name: elements.form.elements.food_name.value.trim(),
-    brand: elements.form.elements.brand.value.trim(),
-    barcode: elements.form.elements.barcode.value.trim(),
-    qty: amount.qty,
+    brand: '',
+    barcode: '',
+    qty: amount.quantity,
     unit: amount.unit,
-    cal: nutrients.calories_kcal?.value ?? null,
-    calories: nutrients.calories_kcal?.value ?? null,
-    protein: nutrients.protein_g?.value ?? null,
-    carbs: nutrients.carbohydrates_g?.value ?? null,
-    fat: nutrients.fat_g?.value ?? null,
-    fibre: nutrients.fibre_g?.value ?? null,
-    sugars: nutrients.sugars_g?.value ?? null,
-    saturatedFat: nutrients.saturated_fat_g?.value ?? null,
-    transFat: nutrients.trans_fat_g?.value ?? null,
-    sodium: nutrients.sodium_mg?.value ?? null,
+    cal: scaledValue('calories_kcal'),
+    calories: scaledValue('calories_kcal'),
+    protein: scaledValue('protein_g'),
+    carbs: scaledValue('carbohydrates_g'),
+    fat: scaledValue('fat_g'),
     nutritionMode: 'total',
     nutritionBasis: basis,
-    servingQuantity: numberOrNull(elements.form.elements.serving_quantity.value),
-    servingUnit: elements.form.elements.serving_unit.value.trim(),
+    servingQuantity: amount.quantity,
+    servingUnit: amount.unit,
     servingWeightG,
-    servingsPerContainer: numberOrNull(elements.form.elements.servings_per_container.value),
+    savedNutritionScaleFactor: scaleFactor,
+    calorieCalculation: nutrients.calories_kcal?.calculation
+      ? { ...nutrients.calories_kcal.calculation }
+      : null,
+    servingCorrection: state.parsed.serving.ocrCorrection
+      ? { ...state.parsed.serving.ocrCorrection }
+      : null,
     originalNutritionBasis: group.derived
       ? group.derivedFrom
       : (group.recognizedBasis || group.basis),
-    originalEnergyValue,
-    originalEnergyUnit,
+    originalEnergyValue: energy.value,
+    originalEnergyUnit: energy.unit,
     originalEnergyValues: group.originalEnergyValues,
     detectedLanguages: [...state.parsed.detectedLanguages],
     ocrConfidence: state.parsed.ocrConfidence,
-    fieldConfidences: Object.fromEntries(Object.entries(nutrients).map(([key, value]) => [key, value.confidence])),
-    fieldQualifiers: Object.fromEntries(Object.entries(nutrients).map(([key, value]) => [key, value.qualifier || ''])),
+    fieldConfidences: Object.fromEntries(FIELD_CONTROLS.map(([key]) => [key, nutrients[key]?.confidence ?? 0])),
+    fieldQualifiers: Object.fromEntries(FIELD_CONTROLS.map(([key]) => [key, nutrients[key]?.qualifier || ''])),
+    fieldCorrections: Object.fromEntries(
+      FIELD_CONTROLS
+        .map(([key]) => [key, nutrients[key]])
+        .filter(([, value]) => value?.ocrCorrection)
+        .map(([key, value]) => [key, { ...value.ocrCorrection }]),
+    ),
+    fieldRefinements: Object.fromEntries(
+      FIELD_CONTROLS
+        .map(([key]) => [key, nutrients[key]])
+        .filter(([, value]) => value?.numericRefinement)
+        .map(([key, value]) => [key, structuredClone(value.numericRefinement)]),
+    ),
     confirmedNutrition: simpleNutritionProfile(group),
     derivedPer100g: confirmedDerived ? simpleNutritionProfile(confirmedDerived) : null,
     source: '我的食物库',
@@ -493,78 +720,166 @@ function buildFoodItem() {
   };
 }
 
+function confidenceLevel(group) {
+  const fieldScores = FIELD_CONTROLS.map(([key]) => {
+    const nutrient = group.nutrients[key];
+    if (nutrient?.value == null) return 0;
+    if (nutrient.userConfirmed) return 1;
+    return Math.max(0, Math.min(Number(nutrient.confidence) || 0, 1));
+  });
+  const fieldAverage = fieldScores.reduce((sum, value) => sum + value, 0) / fieldScores.length;
+  const ocrConfidence = state.parsed.ocrConfidence;
+  let score = ocrConfidence == null
+    ? fieldAverage
+    : fieldAverage * 0.8 + Math.max(0, Math.min(Number(ocrConfidence) || 0, 1)) * 0.2;
+  score = Math.max(0, score - Math.min(state.imageWarnings.length * 0.06, 0.18));
+  if (group.nutrients.calories_kcal?.calculation) score = Math.min(score, 0.74);
+  if (score >= 0.82) return 'high';
+  if (score >= 0.58) return 'medium';
+  return 'low';
+}
+
+function fieldNeedsReview(key, group, issues) {
+  const nutrient = group.nutrients[key];
+  const meaningfulWarnings = (nutrient?.warnings || [])
+    .filter(code => code !== 'calculated_from_serving_weight');
+  return nutrient?.value == null
+    || (!nutrient.userConfirmed && Number(nutrient.confidence) < 0.65)
+    || meaningfulWarnings.length > 0
+    || Boolean(nutrient?.ocrCorrection)
+    || issues.some(itemIssue => itemIssue.field === key);
+}
+
 function renderValidation() {
   if (!state.parsed) return null;
   const item = buildFoodItem();
   const group = currentGroup();
-  const result = validateScannedFood(item, group, { ocrConfidence: state.parsed.ocrConfidence });
-  const issues = [...result.errors, ...result.warnings, ...state.imageWarnings];
+  const result = validateScannedFood(
+    item,
+    coreValidationProfile(group),
+    { ocrConfidence: state.parsed.ocrConfidence },
+  );
+  const issues = [...result.errors, ...result.warnings]
+    .filter(itemIssue => itemIssue.code !== 'calculated_from_serving_weight');
+  const possibleFields = FIELD_CONTROLS.filter(([key]) => fieldNeedsReview(key, group, issues));
 
   elements.nutritionFields.querySelectorAll('.nutrition-field').forEach(field => {
     const key = field.dataset.nutritionField;
-    const hasIssue = issues.some(itemIssue => itemIssue.field === key);
-    field.classList.toggle('needs-review', hasIssue || fieldInput(key).value === '');
+    field.classList.toggle('needs-review', possibleFields.some(([fieldKey]) => fieldKey === key));
   });
 
-  if (!issues.length) {
-    elements.validationSummary.innerHTML = '';
-    elements.validationSummary.classList.add('hidden');
-    elements.warningConfirmLabel.classList.add('hidden');
-    return result;
-  }
-
+  const level = confidenceLevel(group);
+  elements.validationSummary.dataset.confidence = level;
   elements.validationSummary.innerHTML = `
-    <strong>${result.errors.length ? '请先修正以下问题' : '保存前请检查'}</strong>
-    <ul>${issues.map(itemIssue => `<li class="${itemIssue.severity === 'error' ? 'error' : ''}">${itemIssue.message}</li>`).join('')}</ul>
+    <strong>识别信心度：<span class="confidence-level ${level}">${CONFIDENCE_LABELS[level]}</span></strong>
+    ${possibleFields.length ? `<ul>${possibleFields.map(([, label]) => `<li>${label}数值可能错误</li>`).join('')}</ul>` : ''}
   `;
-  elements.validationSummary.classList.remove('hidden');
-  elements.warningConfirmLabel.classList.toggle('hidden', !result.warnings.length && !state.imageWarnings.length);
   return result;
 }
 
 function markFieldAsEdited(key) {
   const group = currentGroup();
   if (!group) return;
+  const macroFields = ['carbohydrates_g', 'protein_g', 'fat_g'];
+  if (macroFields.includes(key) && group.nutrients.calories_kcal?.calculation) {
+    group.nutrients.calories_kcal = {
+      ...group.nutrients.calories_kcal,
+      value: null,
+      confidence: 0,
+      warnings: [],
+      calculation: null,
+    };
+    fieldInput('calories_kcal').value = '';
+    renderEnergyConversion(group);
+  }
   const value = numberOrNull(fieldInput(key).value);
   group.nutrients[key] = {
     ...(group.nutrients[key] || {}),
     value,
     unit: NUTRITION_FIELD_DEFINITIONS[key].storageUnit,
-    qualifier: qualifierInput(key).value,
+    qualifier: '',
     confidence: value == null ? 0 : 1,
     warnings: [],
+    ocrAlternatives: [],
+    ocrCorrection: null,
+    calculation: null,
     userConfirmed: true,
   };
-  const confidence = elements.nutritionFields.querySelector(`[data-confidence-for="${key}"]`);
-  confidence.textContent = value == null ? '未填写' : '已手动确认';
 }
 
-function showBarcodeConflict(existingFood, pendingItem, { mode = 'save' } = {}) {
-  state.existingFood = existingFood;
-  state.pendingItem = pendingItem;
-  state.conflictMode = mode;
-  const barcode = pendingItem?.barcode || existingFood.barcode;
-  elements.conflictDescription.textContent = mode === 'detected'
-    ? `已找到条形码 ${barcode} 对应的本地食物“${existingFood.name}”。可直接使用它，或继续检查本次 OCR 结果后更新。`
-    : `条形码 ${barcode} 已绑定“${existingFood.name}”。你可使用已有食物，或用本次确认的数据更新它。`;
-  elements.conflictModal.classList.remove('hidden');
+function applyCalculatedCalories(review) {
+  const group = currentGroup();
+  const inputs = { ...review.macroValues };
+  group.nutrients.calories_kcal = {
+    ...(group.nutrients.calories_kcal || {}),
+    value: review.calculatedCalories,
+    unit: 'kcal',
+    qualifier: '',
+    confidence: 0.55,
+    warnings: ['calculated_from_macros'],
+    ocrAlternatives: [],
+    ocrCorrection: null,
+    calculation: {
+      type: 'macro_4_4_9',
+      inputs,
+      value: review.calculatedCalories,
+      unit: 'kcal',
+    },
+    userConfirmed: false,
+  };
+  fieldInput('calories_kcal').value = review.calculatedCalories;
+  if (group.basis === 'per_serving') refreshDerivedServingGroup();
+  renderEnergyConversion(group);
 }
 
-async function persistItem(item, barcodeConflict = 'error') {
+function showSaveReview(review, item) {
+  const messages = [];
+  if (review.calculatedCalories != null) {
+    const { carbohydrates_g: carbs, protein_g: protein, fat_g: fat } = review.macroValues;
+    const calculationLead = review.calculationNeeded ? '热量为空，已' : '热量此前已';
+    messages.push(`
+      <p class="auto-calorie-notice">
+        ${calculationLead}按 ${formatNutritionNumber(carbs)} × 4 + ${formatNutritionNumber(protein)} × 4 + ${formatNutritionNumber(fat)} × 9
+        自动填写为 ${formatNutritionNumber(review.calculatedCalories)} kcal。该热量为自动计算，并非 OCR 识别结果。
+      </p>
+    `);
+  }
+  if (review.missingFields.length) {
+    messages.push(`
+      <p>以下数值为空，请返回检查，或确认仍要继续保存：</p>
+      <ul>${review.missingFields.map(field => `<li>${field.label}数值为空</li>`).join('')}</ul>
+    `);
+  }
+
+  state.pendingSaveItem = item;
+  state.reviewFocusKey = review.missingFields[0]?.key
+    || (review.calculatedCalories != null ? 'calories_kcal' : '');
+  elements.saveReviewContent.innerHTML = messages.join('');
+  elements.saveReviewModal.classList.remove('hidden');
+  elements.returnToReview.focus();
+}
+
+function hideSaveReview({ focusField = false } = {}) {
+  elements.saveReviewModal.classList.add('hidden');
+  const focusKey = state.reviewFocusKey;
+  state.pendingSaveItem = null;
+  state.reviewFocusKey = '';
+  if (focusField && focusKey) {
+    fieldInput(focusKey).focus();
+    fieldInput(focusKey).scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+async function persistItem(item) {
   state.saving = true;
   elements.saveButton.disabled = true;
   elements.saveButton.textContent = '正在保存…';
   try {
-    const saved = await saveScannedFood(item, { barcodeConflict });
+    const saved = await saveScannedFood(item);
     await finishAndReturn(saved.name);
   } catch (error) {
-    if (error instanceof BarcodeConflictError) {
-      showBarcodeConflict(error.existingFood, item);
-    } else {
-      console.error('保存扫描食物失败：', error);
-      elements.validationSummary.innerHTML = `<strong>保存失败</strong><p>${error.message || error}</p>`;
-      elements.validationSummary.classList.remove('hidden');
-    }
+    console.error('保存扫描食物失败：', error);
+    elements.validationSummary.innerHTML = `<strong class="save-error">保存失败：${error.message || error}</strong>`;
   } finally {
     state.saving = false;
     elements.saveButton.disabled = false;
@@ -590,6 +905,10 @@ async function resetCapture() {
   state.parsed = null;
   state.processedImage = null;
   state.imageWarnings = [];
+  state.saveAmounts = {};
+  state.pendingSaveItem = null;
+  state.reviewFocusKey = '';
+  elements.saveReviewModal.classList.add('hidden');
   elements.contrast.checked = false;
   setStatus(elements.captureStatus);
   setStage('capture');
@@ -607,7 +926,6 @@ document.getElementById('rotateLeftBtn').addEventListener('click', () => imagePr
 document.getElementById('rotateRightBtn').addEventListener('click', () => imageProcessor.rotate(90));
 document.getElementById('resetImageBtn').addEventListener('click', () => imageProcessor.reset());
 document.getElementById('recognizeBtn').addEventListener('click', recognizeLabel);
-document.getElementById('retryOcrBtn').addEventListener('click', recognizeLabel);
 document.getElementById('retakeBtn').addEventListener('click', resetCapture);
 document.getElementById('confirmRetakeBtn').addEventListener('click', resetCapture);
 document.getElementById('cancelOcrBtn').addEventListener('click', async () => {
@@ -617,96 +935,60 @@ document.getElementById('cancelOcrBtn').addEventListener('click', async () => {
   setStatus(elements.editStatus, '已取消识别，可重试或手动填写。');
 });
 
-elements.basisOptions.addEventListener('change', event => {
-  if (event.target.name !== 'detected_basis_group') return;
-  syncFormToCurrentGroup();
-  state.selectedGroupId = event.target.value;
-  renderBasisOptions();
-  fillFieldsFromGroup(currentGroup());
-  renderValidation();
-});
-
-elements.form.elements.nutrition_basis.addEventListener('change', () => {
-  const group = currentGroup();
-  group.basis = elements.form.elements.nutrition_basis.value;
-  group.label = BASIS_LABELS[group.basis];
-  renderBasisOptions();
-  renderValidation();
-});
-
 elements.nutritionFields.addEventListener('input', event => {
-  const key = event.target.dataset.valueFor || event.target.dataset.qualifierFor;
+  const key = event.target.dataset.valueFor;
   if (!key) return;
   markFieldAsEdited(key);
   renderValidation();
 });
 
 elements.form.addEventListener('input', event => {
-  if (event.target.closest('#nutritionFields') || event.target.name === 'confirm_warnings') return;
+  if (event.target.closest('#nutritionFields')) return;
+  if (['amount_quantity', 'amount_unit'].includes(event.target.name)) {
+    syncFormToCurrentGroup();
+    syncSaveAmount();
+    if (currentGroup()?.basis === 'per_serving') refreshDerivedServingGroup();
+    updateSaveAmountPreview();
+    validateSaveAmount();
+  }
   renderValidation();
 });
 
 elements.form.addEventListener('submit', async event => {
   event.preventDefault();
   if (state.saving) return;
-  const item = buildFoodItem();
+  syncFormToCurrentGroup();
+  syncSaveAmount();
+  validateSaveAmount();
+  if (!reportFormValidityIgnoringStepMismatch()) return;
+  const review = prepareSaveReview(currentGroup().nutrients);
+  if (review.calculationNeeded) applyCalculatedCalories(review);
   const result = renderValidation();
   if (result.errors.length) {
     elements.validationSummary.scrollIntoView({ behavior: 'smooth', block: 'center' });
     return;
   }
-  const needsConfirmation = result.warnings.length || state.imageWarnings.length;
-  if (needsConfirmation && !elements.form.elements.confirm_warnings.checked) {
-    elements.warningConfirmLabel.classList.add('attention');
-    elements.warningConfirmLabel.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    return;
-  }
-
-  const existing = await findFoodByBarcode(item.barcode);
-  if (existing) {
-    if (state.updateExistingOnSave && existing.id === state.existingFood?.id) {
-      await persistItem(item, 'update');
-      return;
-    }
-    showBarcodeConflict(existing, item);
+  const item = buildFoodItem();
+  if (review.requiresReview) {
+    showSaveReview(review, item);
     return;
   }
   await persistItem(item);
 });
 
-document.getElementById('useExistingFoodBtn').addEventListener('click', async () => {
-  elements.conflictModal.classList.add('hidden');
-  await finishAndReturn(state.existingFood?.name || '');
+elements.returnToReview.addEventListener('click', () => hideSaveReview({ focusField: true }));
+elements.continueSave.addEventListener('click', async () => {
+  const item = state.pendingSaveItem;
+  hideSaveReview();
+  if (item) await persistItem(item);
 });
-
-document.getElementById('updateExistingFoodBtn').addEventListener('click', async () => {
-  if (state.conflictMode === 'detected') {
-    elements.conflictModal.classList.add('hidden');
-    state.updateExistingOnSave = true;
-    if (!elements.form.elements.food_name.value.trim()) {
-      elements.form.elements.food_name.value = state.existingFood?.name || '';
-    }
-    if (!elements.form.elements.brand.value.trim()) {
-      elements.form.elements.brand.value = state.existingFood?.brand || '';
-    }
-    renderValidation();
-    return;
+elements.saveReviewModal.addEventListener('click', event => {
+  if (event.target === elements.saveReviewModal) hideSaveReview({ focusField: true });
+});
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && !elements.saveReviewModal.classList.contains('hidden')) {
+    hideSaveReview({ focusField: true });
   }
-  const item = state.pendingItem;
-  elements.conflictModal.classList.add('hidden');
-  if (item) await persistItem(item, 'update');
-});
-
-document.getElementById('cancelConflictBtn').addEventListener('click', () => {
-  elements.conflictModal.classList.add('hidden');
-  state.pendingItem = null;
-  state.updateExistingOnSave = false;
-  state.conflictMode = '';
-});
-
-elements.form.elements.barcode.addEventListener('input', () => {
-  state.updateExistingOnSave = false;
-  state.existingFood = null;
 });
 
 elements.back.addEventListener('click', () => finishAndReturn());
