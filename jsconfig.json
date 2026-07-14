@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "strict": false,
+    "skipLibCheck": true
+  },
+  "include": [
+    "foodLibraryService.js",
+    "nutrition-label/fieldAliases.js",
+    "nutrition-label/ocrTextNormalizer.js",
+    "nutrition-label/nutritionParser.js",
+    "nutrition-label/nutritionValidator.js",
+    "nutrition-label/imageProcessor.js",
+    "nutrition-label/ocrEngineAdapter.js"
+  ]
+}

@@ -48,6 +48,11 @@
 
       <form class="food-form hidden" id="foodForm">
         <p class="subhead">创建食物</p>
+        <a class="scan-label-entry" id="scanLabelEntry" href="nutrition-label.html">
+          <strong>拍摄营养标签</strong>
+          <small>本地识别英文、法文、简体和繁体中文</small>
+        </a>
+        <div class="form-divider"><span>或手动填写</span></div>
         <input type="text" name="food" list="foodList" placeholder="食物名称，例如 鸡胸肉" required />
         <div class="form-pair">
           <input type="number" name="qty" placeholder="数量，例如 100" min="0" step="0.1" required />
@@ -103,6 +108,7 @@
   const params = new URLSearchParams(window.location.search);
   const date = params.get('date') || new Date().toISOString().slice(0, 10);
   const meal = mealNames[params.get('meal')] ? params.get('meal') : 'meal1';
+  const returnedFoodName = params.get('food') || '';
 
   let currentMeta = getDayMeta(date);
   let currentRecords = getRecords(date);
@@ -186,6 +192,9 @@
       <dl class="food-detail-list">
         <div><dt>中文名</dt><dd>${escapeHtml(detailValue(item.nameZh || item.name, '暂无'))}</dd></div>
         <div><dt>英文原名</dt><dd>${escapeHtml(detailValue(item.nameEn, '暂无'))}</dd></div>
+        <div><dt>品牌</dt><dd>${escapeHtml(detailValue(item.brand, '暂无'))}</dd></div>
+        <div><dt>计量基础</dt><dd>${escapeHtml(detailValue(item.nutritionBasis, '暂无'))}</dd></div>
+        <div><dt>条形码</dt><dd>${escapeHtml(detailValue(item.barcode, '暂无'))}</dd></div>
         <div><dt>分类</dt><dd>${escapeHtml(detailValue(item.category, '暂无'))}</dd></div>
         <div><dt>GI 值</dt><dd>${escapeHtml(detailValue(item.gi))}</dd></div>
         <div><dt>GI 水平</dt><dd>${escapeHtml(detailValue(item.giLevel))}</dd></div>
@@ -227,6 +236,12 @@
       giMatchNote: item.giMatchNote || '',
       category: item.category || '',
       translationNote: item.translationNote || '',
+      brand: item.brand || '',
+      barcode: item.barcode || '',
+      nutritionBasis: item.nutritionBasis || '',
+      servingQuantity: item.servingQuantity ?? null,
+      servingUnit: item.servingUnit || '',
+      dataSource: item.dataSource || '',
     };
   }
 
@@ -257,6 +272,12 @@
       giMatchNote: record.giMatchNote || '',
       category: record.category || '',
       translationNote: record.translationNote || '',
+      brand: record.brand || '',
+      barcode: record.barcode || '',
+      nutritionBasis: record.nutritionBasis || '',
+      servingQuantity: record.servingQuantity ?? null,
+      servingUnit: record.servingUnit || '',
+      dataSource: record.dataSource || '',
       usedAt: toNumber(record.id),
     };
   }
@@ -301,7 +322,8 @@
 
     const normalizedQuery = query.trim().toLowerCase();
     return normalizedQuery
-      ? uniqueFoods.filter(item => item.name.toLowerCase().includes(normalizedQuery))
+      ? uniqueFoods.filter(item => [item.name, item.brand, item.barcode]
+        .some(value => String(value || '').toLowerCase().includes(normalizedQuery)))
       : uniqueFoods.slice(0, 8);
   }
 
@@ -545,9 +567,12 @@
   });
 
   document.getElementById('backBtn').addEventListener('click', backHome);
+  document.getElementById('scanLabelEntry').href = `nutrition-label.html?date=${encodeURIComponent(date)}&meal=${encodeURIComponent(meal)}`;
   window.addEventListener('load', async () => {
     await renderFoodList();
-    renderSearchResults();
+    foodSearchInput.value = returnedFoodName;
+    renderSearchResults(returnedFoodName);
+    if (returnedFoodName) setActivePanel('search');
     render();
   });
   </script>

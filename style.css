@@ -642,6 +642,44 @@ input[readonly] {
   font-weight: 800;
 }
 
+.scan-label-entry {
+  display: grid;
+  gap: 4px;
+  min-height: 64px;
+  padding: 12px;
+  border: 1px solid rgba(15, 123, 104, 0.24);
+  border-radius: 7px;
+  background: var(--blue-soft);
+  color: var(--blue);
+  text-decoration: none;
+}
+
+.scan-label-entry strong {
+  font-size: 14px;
+}
+
+.scan-label-entry small {
+  color: #526d66;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.form-divider {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 8px;
+  align-items: center;
+  color: #999;
+  font-size: 12px;
+}
+
+.form-divider::before,
+.form-divider::after {
+  height: 1px;
+  background: #e5e5e5;
+  content: "";
+}
+
 .primary-btn {
   width: 100%;
   min-height: 44px;
