@@ -9,6 +9,30 @@ const PORT = process.env.PORT || 3000;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const vendorOptions = { maxAge: '7d', immutable: true };
+app.use('/vendor/tesseract', express.static(
+  path.join(__dirname, 'node_modules', 'tesseract.js', 'dist'),
+  vendorOptions,
+));
+app.use('/vendor/tesseract-core', express.static(
+  path.join(__dirname, 'node_modules', 'tesseract.js-core'),
+  vendorOptions,
+));
+['eng', 'fra', 'chi_sim', 'chi_tra'].forEach(language => {
+  app.use('/vendor/tessdata', express.static(
+    path.join(__dirname, 'node_modules', '@tesseract.js-data', language, '4.0.0'),
+    vendorOptions,
+  ));
+});
+app.use('/vendor/cropper', express.static(
+  path.join(__dirname, 'node_modules', 'cropperjs', 'dist'),
+  vendorOptions,
+));
+app.use('/vendor/heic-to', express.static(
+  path.join(__dirname, 'node_modules', 'heic-to', 'dist'),
+  vendorOptions,
+));
+
 function toNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;

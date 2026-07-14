@@ -1,0 +1,521 @@
+.scan-page {
+  max-width: 760px;
+}
+
+.scan-main {
+  gap: 16px;
+}
+
+.scan-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.scan-steps li {
+  min-width: 0;
+  padding: 10px 8px;
+  border-bottom: 3px solid #deded8;
+  color: #888;
+  font-size: 13px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.scan-steps li span {
+  margin-left: 4px;
+}
+
+.scan-steps li.active {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+.scan-steps li.complete {
+  border-color: var(--accent);
+  color: #806020;
+}
+
+.scan-section {
+  padding: 18px;
+  border: 1px solid #ecece7;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.scan-section h2,
+.scan-section h3 {
+  margin: 0;
+  letter-spacing: 0;
+}
+
+.scan-section h2 {
+  font-size: 19px;
+}
+
+.scan-section h3 {
+  font-size: 16px;
+}
+
+.scan-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.capture-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.scan-action-btn,
+.scan-bottom-actions .primary-btn {
+  margin-top: 0;
+}
+
+.secondary-btn,
+.text-btn {
+  min-height: 42px;
+  border-radius: 7px;
+  font-weight: 800;
+}
+
+.secondary-btn {
+  border: 1px solid #cfcfc8;
+  background: #fff;
+  color: #333;
+}
+
+.text-btn {
+  padding: 6px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--blue);
+}
+
+.capture-guidance {
+  display: grid;
+  gap: 7px;
+  margin: 18px 0 10px;
+  padding-left: 22px;
+  color: #626262;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+}
+
+.scan-status {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 7px;
+  background: #f3f4f0;
+  color: #555;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.scan-status.error {
+  background: #fff0ee;
+  color: #a12d20;
+}
+
+.crop-workspace {
+  width: 100%;
+  min-height: 360px;
+  max-height: 62vh;
+  overflow: hidden;
+  border: 1px solid #d8d8d1;
+  border-radius: 7px;
+  background: #202220;
+}
+
+.crop-workspace img {
+  display: block;
+  max-width: 100%;
+}
+
+.image-toolbar {
+  display: grid;
+  grid-template-columns: 44px 44px 70px 1fr;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.image-toolbar > button {
+  min-width: 44px;
+  height: 42px;
+  padding: 0 8px;
+  border: 1px solid #d6d6d0;
+  border-radius: 7px;
+  background: #fff;
+  color: #333;
+  font-size: 19px;
+  font-weight: 800;
+}
+
+.contrast-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-height: 42px;
+  color: #444;
+}
+
+.contrast-toggle input {
+  width: 18px;
+  min-height: 18px;
+  margin: 0;
+}
+
+.scan-bottom-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.scan-bottom-actions > button {
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+}
+
+.scan-bottom-actions.save-only {
+  grid-template-columns: 1fr;
+}
+
+#processingStage {
+  text-align: center;
+}
+
+#processingStage p {
+  line-height: 1.5;
+}
+
+#processingStage progress {
+  width: 100%;
+  height: 14px;
+  accent-color: var(--blue);
+}
+
+#processingStage .secondary-btn {
+  width: min(220px, 100%);
+  margin-top: 14px;
+}
+
+.label-preview {
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  max-height: 360px;
+  margin: 0 0 14px;
+  overflow: hidden;
+  border: 1px solid #deded8;
+  border-radius: 7px;
+  background: #f1f2ef;
+}
+
+.label-preview img {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+}
+
+.save-amount-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid #deded8;
+  border-radius: 7px;
+}
+
+.save-amount-fieldset legend {
+  padding: 0 6px;
+  color: #444;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.save-amount {
+  display: grid;
+  gap: 10px;
+}
+
+.save-amount-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #ecece7;
+}
+
+.save-amount-head span {
+  color: #444;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.save-amount-head strong {
+  color: var(--blue);
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+.amount-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.amount-controls label,
+.food-name-field {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.amount-controls span,
+.food-name-field span {
+  color: #444;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.food-name-field b {
+  color: #b03225;
+}
+
+#scanConfirmForm {
+  display: grid;
+  gap: 12px;
+}
+
+.nutrition-fields-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 6px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #ecece7;
+}
+
+.nutrition-fields-head small {
+  color: #777;
+  font-size: 12px;
+  text-align: right;
+}
+
+.nutrition-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.nutrition-field {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #e2e2dd;
+  border-radius: 7px;
+  background: #fff;
+}
+
+.nutrition-field.needs-review {
+  border-color: #e5b44c;
+  background: #fffbf1;
+}
+
+.nutrition-field label > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.nutrition-value-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 6px;
+  align-items: center;
+}
+
+.nutrition-value-control input {
+  min-width: 0;
+  min-height: 38px;
+  padding: 7px 8px;
+}
+
+.nutrition-value-control b {
+  color: #555;
+  font-size: 13px;
+}
+
+.energy-conversion {
+  display: block;
+  margin-top: 8px;
+  color: #626262;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.validation-summary {
+  padding: 12px;
+  border: 1px solid #e0b24d;
+  border-radius: 7px;
+  background: #fff9e9;
+  color: #5f4a1d;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.validation-summary strong {
+  display: block;
+  margin: 0;
+}
+
+.validation-summary ul {
+  display: grid;
+  gap: 5px;
+  margin: 7px 0 0;
+  padding-left: 20px;
+}
+
+.confidence-level,
+.save-error {
+  font-weight: 800;
+}
+
+.confidence-level.high {
+  color: #277044;
+}
+
+.confidence-level.medium {
+  color: #9a6500;
+}
+
+.confidence-level.low,
+.save-error {
+  color: #a12d20;
+}
+
+.validation-summary[data-confidence="high"] {
+  border-color: #a7cdb3;
+  background: #f2f8f3;
+  color: #315d3f;
+}
+
+.validation-summary[data-confidence="low"] {
+  border-color: #e0a89e;
+  background: #fff4f2;
+  color: #7d3329;
+}
+
+.save-review-card {
+  width: min(460px, 100%);
+}
+
+.save-review-content {
+  color: #4f4f4f;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.save-review-content p {
+  margin: 0 0 10px;
+}
+
+.save-review-content ul {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.save-review-content .auto-calorie-notice {
+  padding: 10px;
+  border-left: 3px solid #c98700;
+  background: #fff8e6;
+  color: #6b5014;
+}
+
+.save-review-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.save-review-actions button {
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+}
+
+@media (max-width: 560px) {
+  .scan-steps li span {
+    display: block;
+    margin: 3px 0 0;
+    font-size: 11px;
+  }
+
+  .capture-actions,
+  .scan-bottom-actions,
+  .nutrition-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .crop-workspace {
+    min-height: 300px;
+  }
+
+  .image-toolbar {
+    grid-template-columns: 44px 44px 64px 1fr;
+  }
+
+  .contrast-toggle {
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 360px) {
+  .scan-section {
+    padding: 14px;
+  }
+
+  .image-toolbar {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .contrast-toggle {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+
+  .nutrition-value-control {
+    grid-template-columns: minmax(0, 1fr) 28px;
+  }
+
+  .amount-controls,
+  .save-review-actions {
+    grid-template-columns: 1fr;
+  }
+}

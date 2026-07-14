@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>扫描营养标签 - BiteNotes</title>
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="/vendor/cropper/cropper.min.css" />
+  <link rel="stylesheet" href="nutrition-label/nutrition-label.css" />
+</head>
+<body class="scan-page">
+  <header class="page-top">
+    <button class="back-btn" id="scanBackBtn" type="button" aria-label="返回">‹</button>
+    <h1>扫描营养标签</h1>
+    <span></span>
+  </header>
+
+  <main class="scan-main">
+    <ol class="scan-steps" aria-label="扫描进度">
+      <li class="active" data-step-indicator="capture">1 <span>获取图片</span></li>
+      <li data-step-indicator="edit">2 <span>裁剪识别</span></li>
+      <li data-step-indicator="confirm">3 <span>确认保存</span></li>
+    </ol>
+
+    <section class="scan-section" id="captureStage">
+      <h2>营养成分表</h2>
+      <div class="capture-actions">
+        <button class="primary-btn scan-action-btn" id="takePhotoBtn" type="button">拍摄标签</button>
+        <button class="secondary-btn scan-action-btn" id="choosePhotoBtn" type="button">从相册选择</button>
+      </div>
+      <input class="visually-hidden" id="cameraInput" type="file" accept="image/*,.heic,.heif" capture="environment" />
+      <input class="visually-hidden" id="galleryInput" type="file" accept="image/*,.heic,.heif" />
+      <ul class="capture-guidance">
+        <li>完整拍下整张营养成分表</li>
+        <li>尽量正对标签，保持文字清晰</li>
+        <li>避免反光、阴影和过度倾斜</li>
+      </ul>
+      <button class="text-btn" id="manualWithoutPhotoBtn" type="button">直接手动填写</button>
+      <p class="scan-status hidden" id="captureStatus" role="status"></p>
+    </section>
+
+    <section class="scan-section hidden" id="editStage">
+      <div class="scan-section-head">
+        <h2>调整图片</h2>
+        <button class="text-btn" id="retakeBtn" type="button">重新拍摄</button>
+      </div>
+      <div class="crop-workspace">
+        <img id="cropImage" alt="待识别的营养标签" />
+      </div>
+      <div class="image-toolbar" role="toolbar" aria-label="图片调整">
+        <button type="button" id="rotateLeftBtn" title="向左旋转90度" aria-label="向左旋转90度">↶</button>
+        <button type="button" id="rotateRightBtn" title="向右旋转90度" aria-label="向右旋转90度">↷</button>
+        <button type="button" id="resetImageBtn" title="重置裁剪和旋转">重置</button>
+        <label class="contrast-toggle">
+          <input id="contrastToggle" type="checkbox" />
+          <span>增强对比度</span>
+        </label>
+      </div>
+      <p class="hint">拖动裁剪框，只保留完整的营养成分表。</p>
+      <p class="scan-status hidden" id="editStatus" role="status"></p>
+      <div class="scan-bottom-actions">
+        <button class="secondary-btn" id="manualWithPhotoBtn" type="button">跳过识别，手动填写</button>
+        <button class="primary-btn" id="recognizeBtn" type="button">开始识别</button>
+      </div>
+    </section>
+
+    <section class="scan-section hidden" id="processingStage" aria-live="polite">
+      <h2>正在本地识别</h2>
+      <p id="ocrProgressText">正在加载 OCR 语言模型…</p>
+      <progress id="ocrProgress" max="1" value="0"></progress>
+      <p class="hint">图片仅在当前设备上处理，不会上传到云端。首次加载四种语言模型可能需要等待。</p>
+      <button class="secondary-btn" id="cancelOcrBtn" type="button">取消识别</button>
+    </section>
+
+    <section class="scan-section hidden" id="confirmStage">
+      <div class="scan-section-head">
+        <h2>确认营养数据</h2>
+        <button class="text-btn" id="confirmRetakeBtn" type="button">重新拍摄</button>
+      </div>
+
+      <figure class="label-preview hidden" id="labelPreviewFigure">
+        <img id="labelPreview" alt="已处理的营养标签预览" />
+      </figure>
+
+      <form id="scanConfirmForm" novalidate>
+        <label class="food-name-field">
+          <span>商品或食物名称 <b>*</b></span>
+          <input name="food_name" type="text" autocomplete="off" required />
+        </label>
+
+        <fieldset class="save-amount-fieldset">
+          <legend>保存份量</legend>
+          <div class="save-amount">
+            <div class="amount-controls">
+              <label>
+                <span>单位</span>
+                <select name="amount_unit" required>
+                  <option value="g">克 (g)</option>
+                  <option value="kg">千克 (kg)</option>
+                  <option value="mg">毫克 (mg)</option>
+                  <option value="mL">毫升 (mL)</option>
+                  <option value="L">升 (L)</option>
+                  <option value="份">份</option>
+                  <option value="个">个</option>
+                  <option value="片">片</option>
+                  <option value="袋">袋</option>
+                  <option value="包">包</option>
+                  <option value="盒">盒</option>
+                  <option value="瓶">瓶</option>
+                  <option value="罐">罐</option>
+                  <option value="杯">杯</option>
+                  <option value="勺">勺</option>
+                  <option value="碗">碗</option>
+                  <option value="盘">盘</option>
+                </select>
+              </label>
+              <label>
+                <span>数量</span>
+                <input name="amount_quantity" type="number" min="0" step="1" inputmode="decimal" required />
+              </label>
+            </div>
+            <div class="save-amount-head">
+              <span>组合结果</span>
+              <strong id="saveAmountPreview">1份</strong>
+            </div>
+          </div>
+        </fieldset>
+
+        <div class="nutrition-fields-head">
+          <h3>营养数值</h3>
+          <small>空白表示标签未提供或未成功识别</small>
+        </div>
+        <div class="nutrition-fields" id="nutritionFields"></div>
+
+        <div class="validation-summary" id="validationSummary" role="status" aria-live="polite"></div>
+
+        <div class="scan-bottom-actions save-only">
+          <button class="primary-btn" id="saveScannedFoodBtn" type="submit">保存为自定义食物</button>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <div class="food-detail-modal hidden" id="saveReviewModal" role="dialog" aria-modal="true" aria-labelledby="saveReviewTitle">
+    <div class="food-detail-card save-review-card">
+      <h2 id="saveReviewTitle">保存前请检查</h2>
+      <div class="save-review-content" id="saveReviewContent"></div>
+      <div class="save-review-actions">
+        <button class="secondary-btn" id="returnToReviewBtn" type="button">返回检查</button>
+        <button class="primary-btn" id="continueSaveBtn" type="button">继续保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/vendor/cropper/cropper.min.js"></script>
+  <script src="/vendor/tesseract/tesseract.min.js"></script>
+  <script type="module" src="nutrition-label/scanPage.js"></script>
+</body>
+</html>

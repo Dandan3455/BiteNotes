@@ -16,6 +16,8 @@ Then visit:
 http://localhost:3000/index.html
 ```
 
+Nutrition-label scanning is available from **Create food -> Scan nutrition label**. It uses local Tesseract.js models for English, French, Simplified Chinese, and Traditional Chinese; no label photo is uploaded. See [`docs/nutrition-label-scan.md`](docs/nutrition-label-scan.md) for architecture, tests, privacy behavior, and the physical-device checklist.
+
 Runtime food search currently uses the local dataset only. USDA and Open Food Facts API calls are intentionally disabled for now.
 
 ## File naming notes
