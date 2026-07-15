@@ -150,10 +150,6 @@
     return toNumber(record.qty) * itemCalories(record);
   }
 
-  function foodAmountLabel(item) {
-    return `${toNumber(item.qty) || 1}${item.unit || '份'}`;
-  }
-
   function foodSourceBadge(item) {
     if (item.sourceType === 'userLibrary') return '我的食物库';
     if (item.sourceType === 'commonFoods') return '本地食物库';
@@ -162,9 +158,21 @@
     return item.source || '我的食物库';
   }
 
+  function foodEnglishName(item) {
+    return item.externalName || (item.nameEn && item.nameEn !== item.name ? item.nameEn : '');
+  }
+
+  function giLevelDisplay(item) {
+    const level = String(item.giLevel || '').trim().toLowerCase();
+    if (['high', '高', '高 gi', '高gi'].includes(level)) return '高';
+    if (['medium', '中', '中 gi', '中gi'].includes(level)) return '中';
+    if (['low', '低', '低 gi', '低gi'].includes(level)) return '低';
+    if (['n/a', 'na', 'not applicable', '不适用'].includes(level)) return '不适用';
+    return '待匹配';
+  }
+
   function foodSourceLabel(item) {
-    const englishName = item.externalName || (item.nameEn && item.nameEn !== item.name ? item.nameEn : '');
-    return [foodSourceBadge(item), item.sourceDetail, englishName].filter(Boolean).join(' · ');
+    return [foodSourceBadge(item), item.sourceDetail, foodEnglishName(item)].filter(Boolean).join(' · ');
   }
 
   function foodSourceOriginLabel(item) {
@@ -186,32 +194,12 @@
     return text ? text : fallback;
   }
 
-  function validGiValue(item) {
-    const gi = Number(item.gi);
-    return Number.isFinite(gi) && gi > 0 ? rounded(gi) : null;
-  }
-
-  function giLevelLabel(level) {
-    const normalized = String(level || '').trim().toLowerCase();
-    if (normalized === 'high') return '高 GI';
-    if (normalized === 'medium') return '中 GI';
-    if (normalized === 'low') return '低 GI';
-    return '';
-  }
-
-  function giSummary(item) {
-    const gi = validGiValue(item);
-    if (!gi) return '';
-    const level = giLevelLabel(item.giLevel);
-    return `<em>GI ${gi}${level ? ` · ${level}` : ''}</em>`;
-  }
-
   function showFoodDetail(item) {
     document.getElementById('foodDetailTitle').textContent = item.name || '食物详情';
     foodDetailBody.innerHTML = `
       <dl class="food-detail-list">
         <div><dt>中文名</dt><dd>${escapeHtml(detailValue(item.nameZh || item.name, '暂无'))}</dd></div>
-        <div><dt>英文原名</dt><dd>${escapeHtml(detailValue(item.nameEn, '暂无'))}</dd></div>
+        <div><dt>英文原名</dt><dd>${escapeHtml(detailValue(foodEnglishName(item), '暂无'))}</dd></div>
         <div><dt>品牌</dt><dd>${escapeHtml(detailValue(item.brand, '暂无'))}</dd></div>
         <div><dt>计量基础</dt><dd>${escapeHtml(detailValue(item.nutritionBasis, '暂无'))}</dd></div>
         <div><dt>条形码</dt><dd>${escapeHtml(detailValue(item.barcode, '暂无'))}</dd></div>
@@ -361,27 +349,36 @@
       return;
     }
 
-    foodSearchResults.innerHTML = items.map((item, index) => `
-      <li>
-        <span>
-          <strong>${item.name}</strong>
-          <small>${foodSourceLabel(item)} · 每 ${foodAmountLabel(item)}</small>
-          <div class="food-macro-row">
-            <em>${rounded(itemCalories(item))} kcal</em>
-            <em>蛋白 ${rounded(item.protein)}g</em>
-            <em>碳水 ${rounded(item.carbs)}g</em>
-            <em>脂肪 ${rounded(item.fat)}g</em>
-            ${giSummary(item)}
+    foodSearchResults.innerHTML = items.map((item, index) => {
+      const displayName = item.name || '未命名食物';
+      const name = escapeHtml(displayName);
+      const englishName = escapeHtml(foodEnglishName(item));
+      const unit = escapeHtml(item.unit || '份');
+
+      return `
+        <li class="food-search-item">
+          <div class="food-result-content">
+            <div class="food-result-heading">
+              <strong class="food-result-name">${name}</strong>
+              ${englishName ? `<span class="food-result-english" lang="en">${englishName}</span>` : ''}
+            </div>
+            <div class="food-macro-row" aria-label="${name} 营养信息">
+              <em><span>热量</span><b>${rounded(itemCalories(item))} kcal</b></em>
+              <em><span>蛋白质</span><b>${rounded(item.protein)}g</b></em>
+              <em><span>碳水</span><b>${rounded(item.carbs)}g</b></em>
+              <em><span>脂肪</span><b>${rounded(item.fat)}g</b></em>
+              <em><span>GI</span><b>${giLevelDisplay(item)}</b></em>
+            </div>
           </div>
-        </span>
-        <label class="use-food-control">
-          <input type="number" value="${toNumber(item.qty) || 1}" min="0" step="0.1" aria-label="${item.name} 食用数量" />
-          <b>${item.unit || '份'}</b>
-          <button class="detail-food-btn" type="button" data-index="${index}">详情</button>
-          <button class="use-food-btn" type="button" data-index="${index}">记录</button>
-        </label>
-      </li>
-    `).join('');
+          <div class="use-food-control">
+            <input type="number" value="${toNumber(item.qty) || 1}" min="0" step="0.1" aria-label="${name} 食用数量" />
+            <b>${unit}</b>
+            <button class="detail-food-btn" type="button" data-index="${index}">详情</button>
+            <button class="use-food-btn" type="button" data-index="${index}">记录</button>
+          </div>
+        </li>
+      `;
+    }).join('');
   }
 
   async function fetchExternalFoods(query, requestId) {

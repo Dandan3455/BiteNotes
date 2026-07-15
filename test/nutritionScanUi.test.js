@@ -58,3 +58,23 @@ test('uses categorical confidence, generic field warnings, and an inline energy 
   assert.equal(saveButtons.length, 1);
   assert.match(html, /scan-bottom-actions save-only/u);
 });
+
+test('opens camera and gallery pickers synchronously from their buttons', async () => {
+  const [html, scanPage] = await Promise.all([
+    readFile(htmlUrl, 'utf8'),
+    readFile(scanPageUrl, 'utf8'),
+  ]);
+  const cameraStart = scanPage.indexOf('function openCameraInput()');
+  const cameraEnd = scanPage.indexOf('async function handleSelectedFile', cameraStart);
+  const cameraFlow = scanPage.slice(cameraStart, cameraEnd);
+
+  assert.match(html, /id="cameraInput" type="file" accept="image\/\*" capture="environment"/u);
+  assert.match(html, /id="galleryInput" type="file" accept="image\/\*,\.heic,\.heif"/u);
+  assert.match(scanPage, /function openFilePicker\(input\)/u);
+  assert.match(scanPage, /input\.showPicker\(\)/u);
+  assert.match(scanPage, /input\.click\(\)/u);
+  assert.doesNotMatch(scanPage, /async function openCameraInput/u);
+  assert.ok(cameraFlow.indexOf('openFilePicker(elements.cameraInput)') >= 0);
+  assert.ok(cameraFlow.indexOf('openFilePicker(elements.cameraInput)') < cameraFlow.indexOf('inspectCameraPermission()'));
+  assert.match(scanPage, /elements\.choosePhoto\.addEventListener\('click', openGalleryInput\)/u);
+});
