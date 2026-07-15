@@ -186,6 +186,26 @@
     return text ? text : fallback;
   }
 
+  function validGiValue(item) {
+    const gi = Number(item.gi);
+    return Number.isFinite(gi) && gi > 0 ? rounded(gi) : null;
+  }
+
+  function giLevelLabel(level) {
+    const normalized = String(level || '').trim().toLowerCase();
+    if (normalized === 'high') return '高 GI';
+    if (normalized === 'medium') return '中 GI';
+    if (normalized === 'low') return '低 GI';
+    return '';
+  }
+
+  function giSummary(item) {
+    const gi = validGiValue(item);
+    if (!gi) return '';
+    const level = giLevelLabel(item.giLevel);
+    return `<em>GI ${gi}${level ? ` · ${level}` : ''}</em>`;
+  }
+
   function showFoodDetail(item) {
     document.getElementById('foodDetailTitle').textContent = item.name || '食物详情';
     foodDetailBody.innerHTML = `
@@ -351,6 +371,7 @@
             <em>蛋白 ${rounded(item.protein)}g</em>
             <em>碳水 ${rounded(item.carbs)}g</em>
             <em>脂肪 ${rounded(item.fat)}g</em>
+            ${giSummary(item)}
           </div>
         </span>
         <label class="use-food-control">
