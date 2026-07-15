@@ -18,14 +18,16 @@ test('keeps mobile food search results focused on names, core macros, and action
   assert.match(renderer, /<span>蛋白质<\/span>/u);
   assert.match(renderer, /<span>碳水<\/span>/u);
   assert.match(renderer, /<span>脂肪<\/span>/u);
-  assert.match(renderer, /<span>GI<\/span><b>\$\{giLevelDisplay\(item\)\}<\/b>/u);
+  assert.match(renderer, /<span>GI<\/span><b>\$\{giDisplay\(item\)\}<\/b>/u);
   assert.match(renderer, /detail-food-btn/u);
   assert.match(renderer, /use-food-btn/u);
   assert.doesNotMatch(renderer, /foodSourceLabel|foodAmountLabel|giSummary|每包装|数据来源/u);
 
   assert.match(meal, /function foodEnglishName\(item\)/u);
   assert.match(meal, /function giLevelDisplay\(item\)/u);
+  assert.match(meal, /function giDisplay\(item\)/u);
   assert.match(meal, /if \(\['high', '高', '高 gi', '高gi'\]\.includes\(level\)\) return '高'/u);
+  assert.match(meal, /return `\$\{rounded\(numericGi\)\} · \$\{level\}`/u);
   assert.match(meal, /return '待匹配'/u);
   assert.match(style, /@media \(max-width: 560px\)/u);
   assert.match(style, /grid-template-columns: repeat\(5, minmax\(0, 1fr\)\)/u);

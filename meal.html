@@ -171,6 +171,17 @@
     return '待匹配';
   }
 
+  function giDisplay(item) {
+    const rawGi = String(item.gi ?? '').trim();
+    const numericGi = Number(rawGi);
+    const hasGi = rawGi !== '' && Number.isFinite(numericGi) && numericGi >= 0;
+    const level = giLevelDisplay(item);
+
+    if (hasGi && ['高', '中', '低'].includes(level)) return `${rounded(numericGi)} · ${level}`;
+    if (hasGi) return String(rounded(numericGi));
+    return level;
+  }
+
   function foodSourceLabel(item) {
     return [foodSourceBadge(item), item.sourceDetail, foodEnglishName(item)].filter(Boolean).join(' · ');
   }
@@ -367,7 +378,7 @@
               <em><span>蛋白质</span><b>${rounded(item.protein)}g</b></em>
               <em><span>碳水</span><b>${rounded(item.carbs)}g</b></em>
               <em><span>脂肪</span><b>${rounded(item.fat)}g</b></em>
-              <em><span>GI</span><b>${giLevelDisplay(item)}</b></em>
+              <em><span>GI</span><b>${giDisplay(item)}</b></em>
             </div>
           </div>
           <div class="use-food-control">
