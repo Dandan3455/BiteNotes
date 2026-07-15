@@ -178,17 +178,50 @@ async function inspectCameraPermission() {
   }
 }
 
-async function openCameraInput() {
-  const permission = await inspectCameraPermission();
-  if (permission === 'denied') {
+function openFilePicker(input) {
+  input.value = '';
+  try {
+    if (typeof input.showPicker === 'function') input.showPicker();
+    else input.click();
+    return true;
+  } catch {
+    try {
+      input.click();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+function showPickerOpenError(source) {
+  setStatus(
+    elements.captureStatus,
+    `无法打开${source}。请检查浏览器权限后重试，或直接手动填写。`,
+    'error',
+  );
+}
+
+function openCameraInput() {
+  setStatus(elements.captureStatus);
+  if (!openFilePicker(elements.cameraInput)) {
+    showPickerOpenError('摄像头');
+    return;
+  }
+
+  inspectCameraPermission().then(permission => {
+    if (permission !== 'denied') return;
     setStatus(
       elements.captureStatus,
       '摄像头权限已被拒绝。请在浏览器或系统设置中允许摄像头，或从相册选择图片。',
       'error',
     );
-    return;
-  }
-  elements.cameraInput.click();
+  });
+}
+
+function openGalleryInput() {
+  setStatus(elements.captureStatus);
+  if (!openFilePicker(elements.galleryInput)) showPickerOpenError('图片选择器');
 }
 
 async function handleSelectedFile(input) {
@@ -917,7 +950,7 @@ async function resetCapture() {
 renderFieldControls();
 
 elements.takePhoto.addEventListener('click', openCameraInput);
-elements.choosePhoto.addEventListener('click', () => elements.galleryInput.click());
+elements.choosePhoto.addEventListener('click', openGalleryInput);
 elements.cameraInput.addEventListener('change', () => handleSelectedFile(elements.cameraInput));
 elements.galleryInput.addEventListener('change', () => handleSelectedFile(elements.galleryInput));
 document.getElementById('manualWithoutPhotoBtn').addEventListener('click', () => openManualConfirmation());
